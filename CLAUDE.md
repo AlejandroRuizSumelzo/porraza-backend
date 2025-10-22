@@ -416,3 +416,602 @@ When implementing database changes:
 3. Test on local PostgreSQL 18 instance
 4. Version migrations with timestamps (e.g., `20260115_create_matches_table.sql`)
 5. Store migrations in `database/migrations/` directory
+
+## Deployment & Infrastructure
+
+This application is deployed on a **Hetzner Cloud Server** running Ubuntu 22.04 LTS using Docker containers and automated CI/CD with GitHub Actions.
+
+### Deployment Environment
+
+**Server Details:**
+- **Provider:** Hetzner Cloud
+- **OS:** Ubuntu 22.04.5 LTS (GNU/Linux 5.15.0-151-generic x86_64)
+- **Server Name:** porraza-server
+- **Deployment User:** `porraza` (non-root user with Docker permissions)
+- **Admin Access:** `root` (for server administration and SSH)
+- **Project Directory:** `/home/porraza/porraza-backend`
+
+**Container Stack:**
+- **Backend:** NestJS app in Docker container (port 3001)
+- **Database:** PostgreSQL 18 in Docker container (port 5432)
+- **Orchestration:** Docker Compose
+- **Container Names:** `porraza_backend`, `porraza_postgres`
+
+### Deployment Architecture
+
+```
+GitHub Repository (main branch)
+         ↓
+GitHub Actions Workflow (.github/workflows/deploy.yml)
+         ↓
+SSH as root → sudo -u porraza
+         ↓
+/home/porraza/porraza-backend
+         ↓
+deploy-local.sh script
+         ↓
+Docker Compose (build + deploy)
+         ↓
+Production Containers Running
+```
+
+### Deployment Scripts
+
+The project includes three deployment-related scripts:
+
+#### 1. `deploy-local.sh` (Primary Deployment Script)
+**Purpose:** Main deployment script executed on the server by the `porraza` user
+**Location:** `/home/porraza/porraza-backend/deploy-local.sh`
+**Permissions:** Must be executable by `porraza` user
+
+**Steps:**
+1. Verifies project directory structure
+2. Pulls latest code from GitHub (`git fetch` + `git reset --hard origin/main`)
+3. Validates `.env` file exists (creates from `.env.example` if needed)
+4. Checks Docker permissions for `porraza` user
+5. Stops existing containers (`docker compose down`)
+6. Builds backend image with `--no-cache` flag
+7. Starts services (`docker compose up -d`)
+8. Waits for health check (60 attempts × 2 seconds = 120s max)
+9. Displays container status, logs, and access URLs
+10. Cleans up old Docker images
+
+**Key Features:**
+- Color-coded output (Blue, Green, Yellow, Red, Cyan)
+- Detailed progress logging with step indicators (1/6, 2/6, etc.)
+- Health check validation (checks for "healthy" status)
+- Automatic cleanup of dangling images
+- Displays useful post-deployment commands
+
+**Exit Conditions:**
+- Missing `package.json` or `docker-compose.yml`
+- Missing `.env` file (prompts user to create and edit)
+- No Docker permissions (instructs to add user to `docker` group)
+
+#### 2. `deploy.sh` (Legacy/Alternative Deployment Script)
+**Purpose:** Alternative deployment script designed for root execution
+**Location:** `/home/porraza/porraza-backend/deploy.sh`
+**Target Directory:** `/opt/porraza-backend` (different from current setup)
+**Status:** Not currently used in CI/CD workflow
+
+**Differences from deploy-local.sh:**
+- Requires root/sudo permissions
+- Uses `/opt/porraza-backend` instead of `~/porraza-backend`
+- Includes repository cloning logic (not just pulling)
+- Uses `docker-compose` (hyphenated) instead of `docker compose`
+
+**Note:** This script is kept for reference but the current deployment uses `deploy-local.sh` with the `porraza` user.
+
+#### 3. `verify-deployment.sh` (Verification & Diagnostics)
+**Purpose:** Post-deployment verification and health check script
+**Location:** `/home/porraza/porraza-backend/verify-deployment.sh`
+
+**Checks Performed:**
+1. Docker accessibility for current user
+2. Presence of `docker-compose.yml`
+3. Container status (`docker compose ps`)
+4. Backend container running state
+5. PostgreSQL container running state
+6. Backend health check (10 attempts × 1 second)
+7. HTTP endpoint testing (`http://localhost:3001` and external IP)
+8. PostgreSQL connection (`pg_isready`)
+9. Recent logs (`docker compose logs --tail=20`)
+10. Resource usage (`docker stats`)
+11. Firewall status (checks `ufw` for port 3001)
+
+**Usage:**
+```bash
+cd ~/porraza-backend
+./verify-deployment.sh
+```
+
+### GitHub Actions CI/CD Workflow
+
+**File:** [.github/workflows/deploy.yml](.github/workflows/deploy.yml)
+**Triggers:**
+- Push to `main` branch (automatic)
+- Manual trigger via `workflow_dispatch`
+
+**Environment Variables:**
+- `NODE_ENV: production`
+- `SERVER_HOST`: GitHub secret (Hetzner server IP)
+- `SERVER_USER`: GitHub secret (should be `root`)
+- `SSH_PRIVATE_KEY`: GitHub secret (root's SSH private key)
+
+**Workflow Jobs:**
+
+#### Job 1: `deploy`
+**Timeout:** 15 minutes
+**Runner:** ubuntu-latest
+
+**Steps:**
+1. **Checkout code:** Uses `actions/checkout@v4`
+2. **Setup SSH Key:** Uses `webfactory/ssh-agent@v0.9.0` with `SSH_PRIVATE_KEY` secret
+3. **Add server to known hosts:** Runs `ssh-keyscan` to avoid fingerprint prompt
+4. **Deploy to Hetzner Server:**
+   - SSH as `$SERVER_USER` (root)
+   - Execute: `sudo -u porraza bash -c 'cd ~/porraza-backend && bash ./deploy-local.sh'`
+   - Runs deployment as `porraza` user via sudo
+5. **Verify Deployment:**
+   - Check container status via `docker compose ps`
+   - Wait for backend to be "Up" (30 iterations × 2 seconds = 60s max)
+   - Display recent logs (50 lines)
+6. **Deployment Status:** Success/failure messages
+
+#### Job 2: `notify`
+**Depends on:** `deploy` job
+**Condition:** Always runs (even if deploy fails)
+
+**Steps:**
+- Success notification: Logs commit SHA, deployer, branch
+- Failure notification: Logs error details
+
+### SSH Authentication Flow
+
+**GitHub Actions → Hetzner Server:**
+1. GitHub workflow connects as `root` using `SSH_PRIVATE_KEY`
+2. Root has passwordless SSH configured via authorized_keys
+3. Root executes commands as `porraza` using `sudo -u porraza`
+4. `porraza` user has Docker group permissions (no sudo needed for Docker)
+
+**Why this approach:**
+- `root` SSH key is already configured and secure
+- Avoids needing separate SSH key for `porraza` user
+- `root` can sudo to any user without password
+- `porraza` user has necessary Docker permissions via group membership
+
+**Important:** The `SERVER_USER` secret in GitHub must be `root`, not `porraza`.
+
+### Docker Configuration
+
+**Docker Compose File:** [docker-compose.yml](docker-compose.yml)
+**Version:** 3.8
+**Network:** `porraza_network` (bridge driver)
+
+#### Services:
+
+**1. PostgreSQL Service:**
+```yaml
+container_name: porraza_postgres
+image: postgres:18-alpine
+restart: unless-stopped
+ports: 5432:5432
+environment:
+  - POSTGRES_DB: ${DB_NAME:-porraza_db}
+  - POSTGRES_USER: ${DB_USER:-root}
+  - POSTGRES_PASSWORD: ${DB_PASSWORD:-root}
+  - POSTGRES_INITDB_ARGS: "-E UTF8 --locale=en_US.UTF-8"
+  - TZ: Europe/Madrid
+volumes:
+  - postgres_data:/var/lib/postgresql/data
+healthcheck:
+  - test: pg_isready -U ${DB_USER} -d ${DB_NAME}
+  - interval: 10s, timeout: 5s, retries: 5
+```
+
+**2. Backend Service:**
+```yaml
+container_name: porraza_backend
+build: . (uses Dockerfile)
+restart: unless-stopped
+ports: 3001:3001
+depends_on:
+  - postgres: service_healthy
+environment:
+  - NODE_ENV: production
+  - PORT: 3001
+  - DB_HOST: postgres (container name)
+  - DB_PORT: 5432
+  - DB_NAME: ${DB_NAME}
+  - DB_USER: ${DB_USER}
+  - DB_PASSWORD: ${DB_PASSWORD}
+healthcheck:
+  - test: Node.js HTTP request to localhost:3001
+  - interval: 30s, timeout: 10s, retries: 3, start_period: 40s
+```
+
+**3. Nginx Service (Optional):**
+```yaml
+container_name: porraza_nginx
+image: nginx:alpine
+ports: 80:80, 443:443
+profiles: [with-nginx]  # Not enabled by default
+```
+
+**Volumes:**
+- `postgres_data`: Persistent PostgreSQL data
+
+### Dockerfile (Multi-stage Build)
+
+**Stage 1: Builder**
+- Base image: `node:22-alpine`
+- Installs `pnpm` globally
+- Copies `package.json` and `pnpm-lock.yaml`
+- Runs `pnpm install --frozen-lockfile`
+- Copies source code
+- Builds application (`pnpm run build`)
+- Prunes dev dependencies (`pnpm prune --prod`)
+
+**Stage 2: Production**
+- Base image: `node:22-alpine`
+- Installs `pnpm` globally
+- Copies from builder: `dist/`, `node_modules/`, `package.json`
+- Creates non-root user `nestjs:nodejs` (UID 1001, GID 1001)
+- Changes ownership to `nestjs:nodejs`
+- Switches to `nestjs` user
+- Exposes port 3001
+- Health check: HTTP GET to `http://localhost:3001`
+- Command: `node dist/main.js`
+
+**Build Optimization:**
+- Multi-stage build reduces final image size
+- Production image only includes compiled code and production dependencies
+- No source files or dev dependencies in final image
+- Security: Runs as non-root user
+
+### Environment Variables
+
+**Required in `.env` file on server:**
+```bash
+# Database Configuration
+DB_HOST=postgres              # Container name (set by docker-compose)
+DB_PORT=5432                  # PostgreSQL port
+DB_NAME=porraza_db           # Database name
+DB_USER=root                 # Database user
+DB_PASSWORD=<secure-password> # ⚠️ MUST be changed from default 'root'
+
+# Application Configuration
+NODE_ENV=production          # Environment mode
+PORT=3001                    # Application port
+
+# JWT & Authentication (to be added)
+JWT_SECRET=<secret>          # JWT signing secret
+JWT_EXPIRES_IN=7d            # Token expiration
+
+# Email Service (to be added)
+EMAIL_HOST=<smtp-host>       # SMTP server
+EMAIL_PORT=<smtp-port>       # SMTP port
+EMAIL_USER=<email-user>      # SMTP username
+EMAIL_PASSWORD=<email-pass>  # SMTP password
+```
+
+**Environment File Management:**
+- `.env.example`: Template with placeholder values (committed to repo)
+- `.env`: Actual production values (NOT committed, listed in `.gitignore`)
+- `deploy-local.sh` checks for `.env` and creates from `.env.example` if missing
+- **Security:** Never commit `.env` to version control
+
+### Deployment Process
+
+#### Manual Deployment on Server
+
+```bash
+# 1. SSH to server as root
+ssh root@<server-ip>
+
+# 2. Switch to porraza user
+sudo su - porraza
+
+# 3. Navigate to project directory
+cd ~/porraza-backend
+
+# 4. Run deployment script
+./deploy-local.sh
+
+# 5. Verify deployment
+./verify-deployment.sh
+```
+
+#### Automated Deployment via GitHub Actions
+
+```bash
+# 1. Make changes locally
+git add .
+git commit -m "Your changes"
+
+# 2. Push to main branch
+git push origin main
+
+# 3. GitHub Actions automatically:
+#    - Connects to server via SSH
+#    - Pulls latest code
+#    - Builds Docker image
+#    - Deploys containers
+#    - Verifies health
+
+# 4. Monitor workflow
+# Go to GitHub → Actions tab
+# Click on latest workflow run
+```
+
+#### Manual Trigger via GitHub UI
+
+1. Go to repository on GitHub
+2. Navigate to **Actions** tab
+3. Select **Deploy to Hetzner** workflow
+4. Click **Run workflow** button
+5. Select branch (usually `main`)
+6. Click **Run workflow**
+
+### Common Deployment Tasks
+
+**View Container Status:**
+```bash
+cd ~/porraza-backend
+docker compose ps
+```
+
+**View Logs:**
+```bash
+# All services
+docker compose logs -f
+
+# Backend only
+docker compose logs -f backend
+
+# Last 50 lines
+docker compose logs --tail=50 backend
+```
+
+**Restart Services:**
+```bash
+# Restart backend only
+docker compose restart backend
+
+# Restart all services
+docker compose restart
+
+# Stop all services
+docker compose down
+
+# Start all services
+docker compose up -d
+```
+
+**Rebuild and Redeploy:**
+```bash
+# Quick redeploy (uses cache)
+docker compose up -d --build
+
+# Full rebuild (no cache)
+docker compose build --no-cache backend
+docker compose up -d
+```
+
+**Access PostgreSQL:**
+```bash
+# Via Docker exec
+docker exec -it porraza_postgres psql -U root -d porraza_db
+
+# Via psql client (if installed on host)
+psql -h localhost -p 5432 -U root -d porraza_db
+```
+
+**Check Resource Usage:**
+```bash
+docker stats porraza_backend porraza_postgres
+```
+
+**Clean Up Old Images:**
+```bash
+docker image prune -f
+docker volume prune -f  # ⚠️ Only if you want to delete unused volumes
+```
+
+### Troubleshooting
+
+#### Deployment Fails in GitHub Actions
+
+**Problem:** Workflow shows "Permission denied" or "No such file or directory"
+
+**Solutions:**
+1. **Check SERVER_USER secret:** Must be `root`, not `porraza`
+2. **Verify SSH key:** `SSH_PRIVATE_KEY` must match root's authorized_keys
+3. **Check project directory:** Must exist at `/home/porraza/porraza-backend`
+4. **Verify porraza user exists:** `id porraza` should return user details
+
+#### Container Fails to Start
+
+**Problem:** Backend container exits immediately or fails health check
+
+**Solutions:**
+```bash
+# Check container logs
+docker compose logs backend
+
+# Common issues:
+# 1. Database connection failure (wrong credentials in .env)
+# 2. Missing environment variables
+# 3. Port already in use (check with: lsof -i :3001)
+# 4. Application crash on startup
+
+# Restart with fresh build
+docker compose down
+docker compose build --no-cache backend
+docker compose up -d
+```
+
+#### Database Connection Issues
+
+**Problem:** Backend can't connect to PostgreSQL
+
+**Solutions:**
+1. **Check PostgreSQL is running:** `docker compose ps | grep postgres`
+2. **Verify DB credentials in .env match docker-compose.yml**
+3. **Check network connectivity:**
+   ```bash
+   docker exec porraza_backend ping postgres
+   docker exec porraza_postgres pg_isready -U root
+   ```
+4. **Inspect PostgreSQL logs:** `docker compose logs postgres`
+
+#### Health Check Timeout
+
+**Problem:** Container starts but never becomes "healthy"
+
+**Solutions:**
+```bash
+# Check what health check is testing
+docker inspect porraza_backend | grep -A 5 Healthcheck
+
+# Test health endpoint manually
+docker exec porraza_backend curl localhost:3001
+
+# Check application logs for startup errors
+docker compose logs --tail=100 backend
+
+# Increase start_period if app takes longer to start
+# Edit docker-compose.yml: start_period: 60s
+```
+
+#### Port Already in Use
+
+**Problem:** "Address already in use" error when starting containers
+
+**Solutions:**
+```bash
+# Find what's using port 3001
+sudo lsof -i :3001
+sudo netstat -tulpn | grep 3001
+
+# Kill the process or stop conflicting container
+docker stop <container-id>
+
+# Or change port in .env and docker-compose.yml
+PORT=3002
+```
+
+#### Disk Space Issues
+
+**Problem:** "No space left on device" during build
+
+**Solutions:**
+```bash
+# Check disk usage
+df -h
+docker system df
+
+# Clean up Docker resources
+docker system prune -a --volumes  # ⚠️ Removes ALL unused data
+docker image prune -a             # Remove unused images only
+docker volume prune               # Remove unused volumes
+
+# Check largest images
+docker images --format "{{.Size}}\t{{.Repository}}:{{.Tag}}" | sort -h
+```
+
+### Security Considerations
+
+**SSH Access:**
+- Only `root` has SSH access (key-based authentication)
+- Password authentication disabled
+- SSH keys stored securely in GitHub Secrets
+- `porraza` user has no direct SSH access (accessed via `sudo su - porraza`)
+
+**Docker Security:**
+- Backend runs as non-root user (`nestjs`) inside container
+- PostgreSQL uses strong password (must change from default `root`)
+- Containers run on isolated bridge network
+- Only necessary ports exposed (3001, 5432)
+
+**Environment Secrets:**
+- `.env` file contains sensitive data (never committed)
+- Database credentials stored in `.env` only
+- JWT secrets and API keys must be generated and added to `.env`
+
+**Firewall Configuration:**
+```bash
+# Check firewall status
+sudo ufw status
+
+# Allow necessary ports
+sudo ufw allow 22/tcp    # SSH
+sudo ufw allow 80/tcp    # HTTP (if using Nginx)
+sudo ufw allow 443/tcp   # HTTPS (if using Nginx)
+sudo ufw allow 3001/tcp  # Backend API (only if direct access needed)
+
+# Enable firewall
+sudo ufw enable
+```
+
+**Recommended Security Improvements:**
+1. Change default database password in `.env`
+2. Use Nginx reverse proxy (enable `with-nginx` profile)
+3. Add SSL/TLS certificates for HTTPS
+4. Implement rate limiting in API
+5. Set up automated backups for PostgreSQL data
+6. Configure log rotation to prevent disk fill
+7. Keep server packages updated: `sudo apt update && sudo apt upgrade`
+
+### Monitoring & Maintenance
+
+**Automated Health Checks:**
+- Docker Compose health checks run every 30 seconds
+- GitHub Actions verifies deployment after each push
+- Health endpoint: `http://<server-ip>:3001`
+
+**Log Management:**
+```bash
+# View container logs
+docker compose logs -f backend
+
+# Limit log size in docker-compose.yml
+logging:
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+```
+
+**Backup PostgreSQL Data:**
+```bash
+# Create backup
+docker exec porraza_postgres pg_dump -U root -d porraza_db > backup_$(date +%Y%m%d).sql
+
+# Restore backup
+cat backup_20261022.sql | docker exec -i porraza_postgres psql -U root -d porraza_db
+```
+
+**Server Restart Behavior:**
+- Containers have `restart: unless-stopped` policy
+- Automatically restart after server reboot
+- To prevent auto-restart: `docker compose down`
+
+### Future Improvements
+
+**Planned Enhancements:**
+1. Add Nginx reverse proxy with SSL/TLS
+2. Implement database backup automation
+3. Add monitoring stack (Prometheus + Grafana)
+4. Set up centralized logging (ELK stack or similar)
+5. Implement blue-green deployment strategy
+6. Add pre-deployment smoke tests in CI/CD
+7. Configure CDN for static assets
+8. Set up staging environment for testing
+
+**Performance Optimization:**
+1. Enable Docker BuildKit for faster builds
+2. Implement Redis caching layer
+3. Add database connection pooling
+4. Configure GZIP compression in Nginx
+5. Implement API response caching
