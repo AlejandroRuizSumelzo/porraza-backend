@@ -37,6 +37,9 @@ services:
       DB_NAME: ${DB_NAME:-porraza_db}
       DB_USER: ${DB_USER:-root}
       DB_PASSWORD: ${DB_PASSWORD:-root}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ACCESS_EXPIRATION: ${JWT_ACCESS_EXPIRATION:-15m}
+      JWT_REFRESH_EXPIRATION: ${JWT_REFRESH_EXPIRATION:-7d}
     ports:
       - "${PORT:-3001}:3001"
     depends_on:
