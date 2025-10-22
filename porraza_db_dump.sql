@@ -1,0 +1,916 @@
+--
+-- PostgreSQL database dump
+--
+
+\restrict ZWQ37p4UUxEXbGnfo6JwpF7HUmLZR4grIqlC9VxDPetWr0iALEKRXLPiHP6zdiP
+
+-- Dumped from database version 18.0 (Homebrew)
+-- Dumped by pg_dump version 18.0 (Homebrew)
+
+SET statement_timeout = 0;
+SET lock_timeout = 0;
+SET idle_in_transaction_session_timeout = 0;
+SET transaction_timeout = 0;
+SET client_encoding = 'UTF8';
+SET standard_conforming_strings = on;
+SELECT pg_catalog.set_config('search_path', '', false);
+SET check_function_bodies = false;
+SET xmloption = content;
+SET client_min_messages = warning;
+SET row_security = off;
+
+--
+-- Name: match_phase; Type: TYPE; Schema: public; Owner: root
+--
+
+CREATE TYPE public.match_phase AS ENUM (
+    'GROUP_STAGE',
+    'ROUND_OF_32',
+    'ROUND_OF_16',
+    'QUARTER_FINAL',
+    'SEMI_FINAL',
+    'THIRD_PLACE',
+    'FINAL'
+);
+
+
+ALTER TYPE public.match_phase OWNER TO root;
+
+--
+-- Name: match_status; Type: TYPE; Schema: public; Owner: root
+--
+
+CREATE TYPE public.match_status AS ENUM (
+    'SCHEDULED',
+    'LIVE',
+    'FINISHED',
+    'POSTPONED',
+    'CANCELLED'
+);
+
+
+ALTER TYPE public.match_status OWNER TO root;
+
+--
+-- Name: calculate_goal_difference(); Type: FUNCTION; Schema: public; Owner: root
+--
+
+CREATE FUNCTION public.calculate_goal_difference() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  NEW.goal_difference = NEW.goals_for - NEW.goals_against;
+  RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION public.calculate_goal_difference() OWNER TO root;
+
+--
+-- Name: update_updated_at_column(); Type: FUNCTION; Schema: public; Owner: root
+--
+
+CREATE FUNCTION public.update_updated_at_column() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION public.update_updated_at_column() OWNER TO root;
+
+SET default_tablespace = '';
+
+SET default_table_access_method = heap;
+
+--
+-- Name: group_standings; Type: TABLE; Schema: public; Owner: root
+--
+
+CREATE TABLE public.group_standings (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    group_id uuid NOT NULL,
+    team_id uuid NOT NULL,
+    "position" integer,
+    points integer DEFAULT 0,
+    matches_played integer DEFAULT 0,
+    wins integer DEFAULT 0,
+    draws integer DEFAULT 0,
+    losses integer DEFAULT 0,
+    goals_for integer DEFAULT 0,
+    goals_against integer DEFAULT 0,
+    goal_difference integer DEFAULT 0,
+    created_at timestamp with time zone DEFAULT now(),
+    updated_at timestamp with time zone DEFAULT now(),
+    CONSTRAINT group_standings_check CHECK ((((wins + draws) + losses) = matches_played)),
+    CONSTRAINT group_standings_draws_check CHECK ((draws >= 0)),
+    CONSTRAINT group_standings_goals_against_check CHECK ((goals_against >= 0)),
+    CONSTRAINT group_standings_goals_for_check CHECK ((goals_for >= 0)),
+    CONSTRAINT group_standings_losses_check CHECK ((losses >= 0)),
+    CONSTRAINT group_standings_matches_played_check CHECK (((matches_played >= 0) AND (matches_played <= 3))),
+    CONSTRAINT group_standings_points_check CHECK ((points >= 0)),
+    CONSTRAINT group_standings_position_check CHECK ((("position" >= 1) AND ("position" <= 4))),
+    CONSTRAINT group_standings_wins_check CHECK ((wins >= 0))
+);
+
+
+ALTER TABLE public.group_standings OWNER TO root;
+
+--
+-- Name: groups; Type: TABLE; Schema: public; Owner: root
+--
+
+CREATE TABLE public.groups (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    name character(1) NOT NULL,
+    created_at timestamp with time zone DEFAULT now(),
+    CONSTRAINT groups_name_check CHECK (((name >= 'A'::bpchar) AND (name <= 'L'::bpchar)))
+);
+
+
+ALTER TABLE public.groups OWNER TO root;
+
+--
+-- Name: matches; Type: TABLE; Schema: public; Owner: root
+--
+
+CREATE TABLE public.matches (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    match_number integer NOT NULL,
+    home_team_id uuid,
+    away_team_id uuid,
+    home_team_placeholder character varying(150),
+    away_team_placeholder character varying(150),
+    stadium_id uuid NOT NULL,
+    group_id uuid,
+    phase public.match_phase NOT NULL,
+    match_date date NOT NULL,
+    match_time time without time zone DEFAULT '20:00:00'::time without time zone NOT NULL,
+    home_score integer,
+    away_score integer,
+    home_score_et integer,
+    away_score_et integer,
+    home_penalties integer,
+    away_penalties integer,
+    status public.match_status DEFAULT 'SCHEDULED'::public.match_status,
+    predictions_locked_at timestamp with time zone NOT NULL,
+    depends_on_match_ids integer[],
+    created_at timestamp with time zone DEFAULT now(),
+    updated_at timestamp with time zone DEFAULT now(),
+    CONSTRAINT matches_away_penalties_check CHECK ((away_penalties >= 0)),
+    CONSTRAINT matches_away_score_check CHECK ((away_score >= 0)),
+    CONSTRAINT matches_away_score_et_check CHECK ((away_score_et >= 0)),
+    CONSTRAINT matches_check CHECK ((((home_team_id IS NOT NULL) AND (away_team_id IS NOT NULL)) OR ((home_team_placeholder IS NOT NULL) AND (away_team_placeholder IS NOT NULL)))),
+    CONSTRAINT matches_check1 CHECK ((((phase = 'GROUP_STAGE'::public.match_phase) AND (group_id IS NOT NULL)) OR ((phase <> 'GROUP_STAGE'::public.match_phase) AND (group_id IS NULL)))),
+    CONSTRAINT matches_home_penalties_check CHECK ((home_penalties >= 0)),
+    CONSTRAINT matches_home_score_check CHECK ((home_score >= 0)),
+    CONSTRAINT matches_home_score_et_check CHECK ((home_score_et >= 0)),
+    CONSTRAINT matches_match_number_check CHECK (((match_number >= 1) AND (match_number <= 104)))
+);
+
+
+ALTER TABLE public.matches OWNER TO root;
+
+--
+-- Name: stadiums; Type: TABLE; Schema: public; Owner: root
+--
+
+CREATE TABLE public.stadiums (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    code character varying(50) NOT NULL,
+    name character varying(150) NOT NULL,
+    city character varying(100) NOT NULL,
+    country character varying(3) NOT NULL,
+    timezone character varying(50) NOT NULL,
+    capacity integer,
+    created_at timestamp with time zone DEFAULT now(),
+    updated_at timestamp with time zone DEFAULT now()
+);
+
+
+ALTER TABLE public.stadiums OWNER TO root;
+
+--
+-- Name: teams; Type: TABLE; Schema: public; Owner: root
+--
+
+CREATE TABLE public.teams (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    name character varying(100) NOT NULL,
+    fifa_code character varying(3) NOT NULL,
+    confederation character varying(10) NOT NULL,
+    is_host boolean DEFAULT false,
+    created_at timestamp with time zone DEFAULT now(),
+    updated_at timestamp with time zone DEFAULT now()
+);
+
+
+ALTER TABLE public.teams OWNER TO root;
+
+--
+-- Name: users; Type: TABLE; Schema: public; Owner: root
+--
+
+CREATE TABLE public.users (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    email character varying(255) NOT NULL,
+    password_hash character varying(255) NOT NULL,
+    name character varying(150) NOT NULL,
+    is_active boolean DEFAULT true NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    last_login_at timestamp with time zone,
+    email_verified boolean DEFAULT false NOT NULL,
+    CONSTRAINT users_email_check CHECK (((email)::text ~* '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$'::text)),
+    CONSTRAINT users_name_check CHECK ((length(TRIM(BOTH FROM name)) >= 2))
+);
+
+
+ALTER TABLE public.users OWNER TO root;
+
+--
+-- Name: TABLE users; Type: COMMENT; Schema: public; Owner: root
+--
+
+COMMENT ON TABLE public.users IS 'Stores user accounts for the Porraza prediction platform';
+
+
+--
+-- Name: COLUMN users.id; Type: COMMENT; Schema: public; Owner: root
+--
+
+COMMENT ON COLUMN public.users.id IS 'Unique user identifier (UUID)';
+
+
+--
+-- Name: COLUMN users.email; Type: COMMENT; Schema: public; Owner: root
+--
+
+COMMENT ON COLUMN public.users.email IS 'User email address (unique, used for login)';
+
+
+--
+-- Name: COLUMN users.password_hash; Type: COMMENT; Schema: public; Owner: root
+--
+
+COMMENT ON COLUMN public.users.password_hash IS 'Bcrypt hashed password (cost factor 10-12)';
+
+
+--
+-- Name: COLUMN users.name; Type: COMMENT; Schema: public; Owner: root
+--
+
+COMMENT ON COLUMN public.users.name IS 'User display name (minimum 2 characters)';
+
+
+--
+-- Name: COLUMN users.is_active; Type: COMMENT; Schema: public; Owner: root
+--
+
+COMMENT ON COLUMN public.users.is_active IS 'Account status (false = suspended/deactivated)';
+
+
+--
+-- Name: COLUMN users.created_at; Type: COMMENT; Schema: public; Owner: root
+--
+
+COMMENT ON COLUMN public.users.created_at IS 'Account creation timestamp';
+
+
+--
+-- Name: COLUMN users.updated_at; Type: COMMENT; Schema: public; Owner: root
+--
+
+COMMENT ON COLUMN public.users.updated_at IS 'Last account update timestamp';
+
+
+--
+-- Name: COLUMN users.last_login_at; Type: COMMENT; Schema: public; Owner: root
+--
+
+COMMENT ON COLUMN public.users.last_login_at IS 'Last successful login timestamp';
+
+
+--
+-- Name: COLUMN users.email_verified; Type: COMMENT; Schema: public; Owner: root
+--
+
+COMMENT ON COLUMN public.users.email_verified IS 'Email verification status (true = verified, false = pending verification)';
+
+
+--
+-- Data for Name: group_standings; Type: TABLE DATA; Schema: public; Owner: root
+--
+
+COPY public.group_standings (id, group_id, team_id, "position", points, matches_played, wins, draws, losses, goals_for, goals_against, goal_difference, created_at, updated_at) FROM stdin;
+dd4c0c3e-35d2-479b-bc60-a03f13377560	3cbeb5b0-65b6-4c5c-b18b-7d495e8d8ada	d8357f2b-e7be-47ad-8e06-997d09017409	1	0	0	0	0	0	0	0	0	2025-10-21 11:00:48.049075+02	2025-10-21 11:00:48.049075+02
+be675b37-ddf1-42bc-964d-0afe882d3975	3cbeb5b0-65b6-4c5c-b18b-7d495e8d8ada	f86303ec-6622-4ad6-8c7b-37fa7794278b	2	0	0	0	0	0	0	0	0	2025-10-21 11:00:48.049075+02	2025-10-21 11:00:48.049075+02
+6ea3f854-a858-4100-a3e0-1e43997ba1d8	3cbeb5b0-65b6-4c5c-b18b-7d495e8d8ada	a00312ad-544e-412e-818b-36d30cca9b42	3	0	0	0	0	0	0	0	0	2025-10-21 11:00:48.049075+02	2025-10-21 11:00:48.049075+02
+b28c2a5b-6fa4-4c87-beee-96465780fae4	3cbeb5b0-65b6-4c5c-b18b-7d495e8d8ada	5b071bac-ca7b-4d43-ad89-aec49b7a9125	4	0	0	0	0	0	0	0	0	2025-10-21 11:00:48.049075+02	2025-10-21 11:00:48.049075+02
+f9dbcfd0-0fe2-4421-ae00-4fe468cede0e	afd0e898-4153-429d-91a5-c8dc3f8657ae	9a391cb4-7a8b-44b3-b3fc-8fabc9c191dd	1	0	0	0	0	0	0	0	0	2025-10-21 11:00:48.049075+02	2025-10-21 11:00:48.049075+02
+3b933a82-dc89-484c-8280-f9ba767750eb	afd0e898-4153-429d-91a5-c8dc3f8657ae	87f78324-81f4-4632-a165-5cdf49b8c584	2	0	0	0	0	0	0	0	0	2025-10-21 11:00:48.049075+02	2025-10-21 11:00:48.049075+02
+0f9e8ac4-d796-4bf0-8168-968b47f783ea	afd0e898-4153-429d-91a5-c8dc3f8657ae	24bbb80a-7470-4c8a-b049-7428051c5b64	3	0	0	0	0	0	0	0	0	2025-10-21 11:00:48.049075+02	2025-10-21 11:00:48.049075+02
+0aea9b62-a262-4939-9119-51ccebb94235	afd0e898-4153-429d-91a5-c8dc3f8657ae	ca2dcc71-c693-4416-a10d-a6e93a9065db	4	0	0	0	0	0	0	0	0	2025-10-21 11:00:48.049075+02	2025-10-21 11:00:48.049075+02
+b2fa54d7-d8d4-43a8-92c6-7fe46567eb84	fd8e1ba6-d943-4fc7-94ff-4c2e07ca7f39	046f94fb-94e3-4a27-ab27-f1626991f2a3	1	0	0	0	0	0	0	0	0	2025-10-21 11:00:48.049075+02	2025-10-21 11:00:48.049075+02
+ef0bc949-fc78-4359-b669-4c57a83ce5a0	fd8e1ba6-d943-4fc7-94ff-4c2e07ca7f39	5518ebc2-8b76-462c-967f-e8c69df036c5	2	0	0	0	0	0	0	0	0	2025-10-21 11:00:48.049075+02	2025-10-21 11:00:48.049075+02
+94941733-c6b3-4686-b0df-37522861056d	fd8e1ba6-d943-4fc7-94ff-4c2e07ca7f39	aedc9635-8cf5-4d9e-98c1-ffe9ad53d4eb	3	0	0	0	0	0	0	0	0	2025-10-21 11:00:48.049075+02	2025-10-21 11:00:48.049075+02
+ccc370e7-a65d-45a6-a7b7-a548f17f6df0	fd8e1ba6-d943-4fc7-94ff-4c2e07ca7f39	5ca38843-b961-43b7-93af-9cf7b01f413a	4	0	0	0	0	0	0	0	0	2025-10-21 11:00:48.049075+02	2025-10-21 11:00:48.049075+02
+549af332-3df8-448e-b0fa-a05d9db38473	8bfa230d-56e6-4433-8cac-ee835a9bd54d	461b439e-7fb4-4f90-950f-86d0d072dbfd	1	0	0	0	0	0	0	0	0	2025-10-21 11:00:48.049075+02	2025-10-21 11:00:48.049075+02
+08167f72-4516-40ce-afff-470063e9659b	8bfa230d-56e6-4433-8cac-ee835a9bd54d	ceeefb95-2f6e-4b6e-8ce7-5cf984b4f89d	2	0	0	0	0	0	0	0	0	2025-10-21 11:00:48.049075+02	2025-10-21 11:00:48.049075+02
+415f7abf-ecdc-4bd0-a104-d0d4821b366f	8bfa230d-56e6-4433-8cac-ee835a9bd54d	05595c2c-c33e-4a0b-9926-c9b70626cfd7	3	0	0	0	0	0	0	0	0	2025-10-21 11:00:48.049075+02	2025-10-21 11:00:48.049075+02
+f15b6b2f-91d3-4ab8-bd6f-c30b05b3ff83	8bfa230d-56e6-4433-8cac-ee835a9bd54d	c3de716b-5774-4a23-9931-7c01d6cab198	4	0	0	0	0	0	0	0	0	2025-10-21 11:00:48.049075+02	2025-10-21 11:00:48.049075+02
+0a965c87-0023-4d3c-865d-ac7607dd37fd	250ab00e-ed71-46fc-b694-8a06bae4e0c0	6ebff7ee-a9e6-4824-8e5a-d82fa42eaccd	1	0	0	0	0	0	0	0	0	2025-10-21 11:00:48.049075+02	2025-10-21 11:00:48.049075+02
+f61c2b25-f693-415a-8c91-446c9952eeb6	250ab00e-ed71-46fc-b694-8a06bae4e0c0	ceabb439-6efd-4805-a631-066a0f109209	2	0	0	0	0	0	0	0	0	2025-10-21 11:00:48.049075+02	2025-10-21 11:00:48.049075+02
+843b8f33-d3ad-4af6-9fcd-2b086a159c05	250ab00e-ed71-46fc-b694-8a06bae4e0c0	fe0fee1a-c034-4704-a1f0-947430d45fd0	3	0	0	0	0	0	0	0	0	2025-10-21 11:00:48.049075+02	2025-10-21 11:00:48.049075+02
+4847c192-7ef2-40f1-a87e-56d7a55775cc	250ab00e-ed71-46fc-b694-8a06bae4e0c0	7d01399a-439b-4c88-8c08-bde1c8cca252	4	0	0	0	0	0	0	0	0	2025-10-21 11:00:48.049075+02	2025-10-21 11:00:48.049075+02
+ea1de0a0-67e5-4d4c-a40f-12c8f418edc5	4a042c8a-28fb-4595-99e3-bf812085a960	2b1a9ed4-3d02-4403-b852-667450917c19	1	0	0	0	0	0	0	0	0	2025-10-21 11:00:48.049075+02	2025-10-21 11:00:48.049075+02
+128875db-b8db-44c7-aa66-32785eb6fbfc	4a042c8a-28fb-4595-99e3-bf812085a960	174cd9de-c812-4ae9-abe8-e2fd1afea784	2	0	0	0	0	0	0	0	0	2025-10-21 11:00:48.049075+02	2025-10-21 11:00:48.049075+02
+c464caaf-decc-4adb-addf-9dc7cb3bf6ef	4a042c8a-28fb-4595-99e3-bf812085a960	22968cb4-f2ac-414c-b223-2cb9b27e9ce7	3	0	0	0	0	0	0	0	0	2025-10-21 11:00:48.049075+02	2025-10-21 11:00:48.049075+02
+e925f045-42a4-4a97-8b96-6521a0d012e7	4a042c8a-28fb-4595-99e3-bf812085a960	2b5de306-9957-416a-b86b-3f71cbf2d374	4	0	0	0	0	0	0	0	0	2025-10-21 11:00:48.049075+02	2025-10-21 11:00:48.049075+02
+1ad30261-5c71-41e6-8658-9a0386792a2e	6a39d63d-bb7d-48f0-b52f-45074647c2f0	38b2417a-12f3-4e62-8985-33f6988ea703	1	0	0	0	0	0	0	0	0	2025-10-21 11:00:48.049075+02	2025-10-21 11:00:48.049075+02
+db145810-8d0e-48e0-b79f-0b12e2d2c08e	6a39d63d-bb7d-48f0-b52f-45074647c2f0	8568d38c-9aa3-4734-b7c3-99983b0b023e	2	0	0	0	0	0	0	0	0	2025-10-21 11:00:48.049075+02	2025-10-21 11:00:48.049075+02
+b683dd40-a875-4931-b85b-7665cb84cabc	6a39d63d-bb7d-48f0-b52f-45074647c2f0	216a423c-4c10-4114-92e8-1bf990d129b2	3	0	0	0	0	0	0	0	0	2025-10-21 11:00:48.049075+02	2025-10-21 11:00:48.049075+02
+f170e7c7-9ee5-4cb2-a439-a2cc1f03df7c	6a39d63d-bb7d-48f0-b52f-45074647c2f0	2276d385-6c81-4942-996a-a38faca8483e	4	0	0	0	0	0	0	0	0	2025-10-21 11:00:48.049075+02	2025-10-21 11:00:48.049075+02
+6d88f866-a89d-46da-911e-e6e69d3a9dd5	a366c70f-455b-4d06-96b2-5b1101d54568	f5905ac1-2444-4da3-8721-627f797e5b07	1	0	0	0	0	0	0	0	0	2025-10-21 11:00:48.049075+02	2025-10-21 11:00:48.049075+02
+3b3cc710-85aa-470b-8ec0-d9c7f652326d	a366c70f-455b-4d06-96b2-5b1101d54568	e799cb70-2e87-408d-a9ee-6ef951d6b83b	2	0	0	0	0	0	0	0	0	2025-10-21 11:00:48.049075+02	2025-10-21 11:00:48.049075+02
+64cdb434-8bdb-4ed3-adfe-ecd95099f645	a366c70f-455b-4d06-96b2-5b1101d54568	1061ad89-a510-49f3-b732-db7ced0d0e44	3	0	0	0	0	0	0	0	0	2025-10-21 11:00:48.049075+02	2025-10-21 11:00:48.049075+02
+dab17e88-2a40-42aa-932a-4ded98231d6f	a366c70f-455b-4d06-96b2-5b1101d54568	42ef1870-b223-461f-be38-3b811be0b36a	4	0	0	0	0	0	0	0	0	2025-10-21 11:00:48.049075+02	2025-10-21 11:00:48.049075+02
+bd61bd25-4131-492b-8b87-699d0670674e	bb43b229-d659-4e79-9e71-b069a8692ccf	7ae4c138-dc0b-4800-96c5-d2af36b86621	1	0	0	0	0	0	0	0	0	2025-10-21 11:00:48.049075+02	2025-10-21 11:00:48.049075+02
+4508bd49-4545-4390-83a7-94529ed7f268	bb43b229-d659-4e79-9e71-b069a8692ccf	8c7b4562-0a67-43e9-b859-7bf6a20b5032	2	0	0	0	0	0	0	0	0	2025-10-21 11:00:48.049075+02	2025-10-21 11:00:48.049075+02
+bf0dbd7a-d6b9-4165-8822-2f459c24a787	bb43b229-d659-4e79-9e71-b069a8692ccf	6ffe9b25-519c-47a1-b0a9-db1383fe2fdf	3	0	0	0	0	0	0	0	0	2025-10-21 11:00:48.049075+02	2025-10-21 11:00:48.049075+02
+86b4903c-ab22-4b34-9e96-ee26a9ae9805	bb43b229-d659-4e79-9e71-b069a8692ccf	b7e9ab10-5f45-4997-b1c0-b40bb484de6e	4	0	0	0	0	0	0	0	0	2025-10-21 11:00:48.049075+02	2025-10-21 11:00:48.049075+02
+b525a127-5b6f-495f-ad70-e5d57308549b	7287001a-6aa7-470e-9a58-604d3288783c	4ca93a36-4c6c-446d-a4e0-45b58611a94f	1	0	0	0	0	0	0	0	0	2025-10-21 11:00:48.049075+02	2025-10-21 11:00:48.049075+02
+a5d35df5-8faf-48e8-9b74-292cdd86fbe1	7287001a-6aa7-470e-9a58-604d3288783c	16eccf20-b94c-4531-9d45-46ac22da3725	2	0	0	0	0	0	0	0	0	2025-10-21 11:00:48.049075+02	2025-10-21 11:00:48.049075+02
+abf685a7-85d2-4c56-9039-51baa2e9dd85	7287001a-6aa7-470e-9a58-604d3288783c	1937d54e-3467-4f62-a517-68399f6345e5	3	0	0	0	0	0	0	0	0	2025-10-21 11:00:48.049075+02	2025-10-21 11:00:48.049075+02
+aaefb76e-2288-4123-940d-a27f62469421	7287001a-6aa7-470e-9a58-604d3288783c	ae786f4e-71b0-454a-aaf4-b43783e35b90	4	0	0	0	0	0	0	0	0	2025-10-21 11:00:48.049075+02	2025-10-21 11:00:48.049075+02
+7c65ef3e-029a-4f6f-bf36-8462a212f52c	a9fa10b5-10f2-421e-a3aa-87b9162b5741	73b72ec1-5960-4d6d-b9d0-7be2fd174182	1	0	0	0	0	0	0	0	0	2025-10-21 11:00:48.049075+02	2025-10-21 11:00:48.049075+02
+dab5e7a8-1983-4861-ab0e-7b59c34b8084	a9fa10b5-10f2-421e-a3aa-87b9162b5741	fcdd9597-f6e2-4b9f-a5f9-fd25537f1fe9	2	0	0	0	0	0	0	0	0	2025-10-21 11:00:48.049075+02	2025-10-21 11:00:48.049075+02
+7d60a1f7-603c-49e2-b77e-2a0ac932dc4b	a9fa10b5-10f2-421e-a3aa-87b9162b5741	f249f3e7-3778-4df2-b00e-877e7a069c4c	3	0	0	0	0	0	0	0	0	2025-10-21 11:00:48.049075+02	2025-10-21 11:00:48.049075+02
+6f7d5b1c-51ac-4eb0-8c6d-dc8154de5c80	a9fa10b5-10f2-421e-a3aa-87b9162b5741	ea09e8b5-f54d-453c-9193-8b8f5507bafc	4	0	0	0	0	0	0	0	0	2025-10-21 11:00:48.049075+02	2025-10-21 11:00:48.049075+02
+0e717c1d-cc04-474d-af90-c85bfae8f37c	c682b2ad-93b0-41d9-9798-02cabf2abee3	24b7ad52-c989-4991-a8be-24763c774cf3	1	0	0	0	0	0	0	0	0	2025-10-21 11:00:48.049075+02	2025-10-21 11:00:48.049075+02
+7e09dd2a-c55d-41bc-a646-5f43ffb19538	c682b2ad-93b0-41d9-9798-02cabf2abee3	607e0122-5e1b-467e-939e-cfc992e5b77a	2	0	0	0	0	0	0	0	0	2025-10-21 11:00:48.049075+02	2025-10-21 11:00:48.049075+02
+37929297-1a71-4e6d-ab38-b4ba056693b7	c682b2ad-93b0-41d9-9798-02cabf2abee3	353f2d37-2e15-4768-9360-1739eb566619	3	0	0	0	0	0	0	0	0	2025-10-21 11:00:48.049075+02	2025-10-21 11:00:48.049075+02
+6205671f-58da-415b-b1d5-bd85b985bc27	c682b2ad-93b0-41d9-9798-02cabf2abee3	e3c2f352-fdf0-4bba-8db4-5b228e006fef	4	0	0	0	0	0	0	0	0	2025-10-21 11:00:48.049075+02	2025-10-21 11:00:48.049075+02
+\.
+
+
+--
+-- Data for Name: groups; Type: TABLE DATA; Schema: public; Owner: root
+--
+
+COPY public.groups (id, name, created_at) FROM stdin;
+3cbeb5b0-65b6-4c5c-b18b-7d495e8d8ada	A	2025-10-21 10:54:30.231711+02
+afd0e898-4153-429d-91a5-c8dc3f8657ae	B	2025-10-21 10:54:30.231711+02
+fd8e1ba6-d943-4fc7-94ff-4c2e07ca7f39	C	2025-10-21 10:54:30.231711+02
+8bfa230d-56e6-4433-8cac-ee835a9bd54d	D	2025-10-21 10:54:30.231711+02
+250ab00e-ed71-46fc-b694-8a06bae4e0c0	E	2025-10-21 10:54:30.231711+02
+4a042c8a-28fb-4595-99e3-bf812085a960	F	2025-10-21 10:54:30.231711+02
+6a39d63d-bb7d-48f0-b52f-45074647c2f0	G	2025-10-21 10:54:30.231711+02
+a366c70f-455b-4d06-96b2-5b1101d54568	H	2025-10-21 10:54:30.231711+02
+bb43b229-d659-4e79-9e71-b069a8692ccf	I	2025-10-21 10:54:30.231711+02
+7287001a-6aa7-470e-9a58-604d3288783c	J	2025-10-21 10:54:30.231711+02
+a9fa10b5-10f2-421e-a3aa-87b9162b5741	K	2025-10-21 10:54:30.231711+02
+c682b2ad-93b0-41d9-9798-02cabf2abee3	L	2025-10-21 10:54:30.231711+02
+\.
+
+
+--
+-- Data for Name: matches; Type: TABLE DATA; Schema: public; Owner: root
+--
+
+COPY public.matches (id, match_number, home_team_id, away_team_id, home_team_placeholder, away_team_placeholder, stadium_id, group_id, phase, match_date, match_time, home_score, away_score, home_score_et, away_score_et, home_penalties, away_penalties, status, predictions_locked_at, depends_on_match_ids, created_at, updated_at) FROM stdin;
+e096dcb1-9f20-4ce5-89ac-740d41283fb9	1	d8357f2b-e7be-47ad-8e06-997d09017409	5b071bac-ca7b-4d43-ad89-aec49b7a9125	\N	\N	fd2c4c48-1a2d-4404-8a61-3c463e3e1604	3cbeb5b0-65b6-4c5c-b18b-7d495e8d8ada	GROUP_STAGE	2026-06-11	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+12d5f0ed-5aae-4462-a85b-059102f632ff	2	f86303ec-6622-4ad6-8c7b-37fa7794278b	a00312ad-544e-412e-818b-36d30cca9b42	\N	\N	ae327f2c-0b6c-48ef-bd94-a4398e9f5e32	3cbeb5b0-65b6-4c5c-b18b-7d495e8d8ada	GROUP_STAGE	2026-06-11	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+57387126-9c86-43ee-872a-46004d562305	3	9a391cb4-7a8b-44b3-b3fc-8fabc9c191dd	ca2dcc71-c693-4416-a10d-a6e93a9065db	\N	\N	308f8508-7db4-46db-a847-231a43d891c6	afd0e898-4153-429d-91a5-c8dc3f8657ae	GROUP_STAGE	2026-06-12	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+50a4c1b7-ea29-4aef-b7cc-37f9412de643	4	461b439e-7fb4-4f90-950f-86d0d072dbfd	c3de716b-5774-4a23-9931-7c01d6cab198	\N	\N	5de199da-30d0-416d-86e2-22f1f856fc73	8bfa230d-56e6-4433-8cac-ee835a9bd54d	GROUP_STAGE	2026-06-12	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+8b09d4d6-1802-414d-bea9-91db30c2e083	5	046f94fb-94e3-4a27-ab27-f1626991f2a3	5ca38843-b961-43b7-93af-9cf7b01f413a	\N	\N	39abe34d-5bf4-4808-97fd-e57824b109b2	fd8e1ba6-d943-4fc7-94ff-4c2e07ca7f39	GROUP_STAGE	2026-06-13	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+85697b41-4593-4831-929d-717154f5e201	6	ceeefb95-2f6e-4b6e-8ce7-5cf984b4f89d	05595c2c-c33e-4a0b-9926-c9b70626cfd7	\N	\N	136441ec-7c94-4653-85ba-d14896723180	8bfa230d-56e6-4433-8cac-ee835a9bd54d	GROUP_STAGE	2026-06-13	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+7e4258ad-c22f-4dd6-80dc-98641596d00e	7	5518ebc2-8b76-462c-967f-e8c69df036c5	aedc9635-8cf5-4d9e-98c1-ffe9ad53d4eb	\N	\N	e3ae9274-aca6-44f1-8856-a40aa8e11ee7	fd8e1ba6-d943-4fc7-94ff-4c2e07ca7f39	GROUP_STAGE	2026-06-13	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+fc28e3dd-a1dc-4783-ae07-ac46ea64cbcb	8	87f78324-81f4-4632-a165-5cdf49b8c584	24bbb80a-7470-4c8a-b049-7428051c5b64	\N	\N	268698e3-8b24-44b9-88e1-4972fe1a4d95	afd0e898-4153-429d-91a5-c8dc3f8657ae	GROUP_STAGE	2026-06-13	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+239ccefc-3179-45e5-90a4-3447eed73fc0	9	6ebff7ee-a9e6-4824-8e5a-d82fa42eaccd	7d01399a-439b-4c88-8c08-bde1c8cca252	\N	\N	abd4e5ba-8844-4ee0-a25f-1166c70bbb14	250ab00e-ed71-46fc-b694-8a06bae4e0c0	GROUP_STAGE	2026-06-14	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+6ea90b9e-ad9a-4ba3-9459-561e0015e745	10	ceabb439-6efd-4805-a631-066a0f109209	fe0fee1a-c034-4704-a1f0-947430d45fd0	\N	\N	bebbe226-c787-4a94-9da6-4f3bb61668bf	250ab00e-ed71-46fc-b694-8a06bae4e0c0	GROUP_STAGE	2026-06-14	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+558bc4f1-1352-43b8-a294-442968d2490c	11	2b1a9ed4-3d02-4403-b852-667450917c19	2b5de306-9957-416a-b86b-3f71cbf2d374	\N	\N	29fe1ea0-d08b-46ac-add1-f28052b20d9e	4a042c8a-28fb-4595-99e3-bf812085a960	GROUP_STAGE	2026-06-14	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+1efa559d-7b80-4217-9872-e2c4548935e3	12	174cd9de-c812-4ae9-abe8-e2fd1afea784	22968cb4-f2ac-414c-b223-2cb9b27e9ce7	\N	\N	118f48e1-bdef-43cb-b228-2c64f72cef76	4a042c8a-28fb-4595-99e3-bf812085a960	GROUP_STAGE	2026-06-14	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+26a92bbd-4a65-4f35-a014-492b0bd5533d	13	f5905ac1-2444-4da3-8721-627f797e5b07	42ef1870-b223-461f-be38-3b811be0b36a	\N	\N	af35381c-b7cc-4f3d-94a6-bd42d1a660da	a366c70f-455b-4d06-96b2-5b1101d54568	GROUP_STAGE	2026-06-15	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+fe587968-b8ab-4b2e-b15a-b40b77edb3f9	14	e799cb70-2e87-408d-a9ee-6ef951d6b83b	1061ad89-a510-49f3-b732-db7ced0d0e44	\N	\N	7bf6082f-0b9e-4a5c-b66d-d65135b06b79	a366c70f-455b-4d06-96b2-5b1101d54568	GROUP_STAGE	2026-06-15	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+22489bab-9d1a-4ddd-9ff6-d4cde5d1b2fc	15	38b2417a-12f3-4e62-8985-33f6988ea703	2276d385-6c81-4942-996a-a38faca8483e	\N	\N	5de199da-30d0-416d-86e2-22f1f856fc73	6a39d63d-bb7d-48f0-b52f-45074647c2f0	GROUP_STAGE	2026-06-15	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+0bc5ea32-4f90-4b45-b6b8-eabcc920d3a8	16	8568d38c-9aa3-4734-b7c3-99983b0b023e	216a423c-4c10-4114-92e8-1bf990d129b2	\N	\N	ccb86ad1-6aaa-4c7f-b930-92f3b7845d6b	6a39d63d-bb7d-48f0-b52f-45074647c2f0	GROUP_STAGE	2026-06-15	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+19531754-cb0c-4d9d-8c45-8fb3afa3e08c	17	7ae4c138-dc0b-4800-96c5-d2af36b86621	b7e9ab10-5f45-4997-b1c0-b40bb484de6e	\N	\N	e3ae9274-aca6-44f1-8856-a40aa8e11ee7	bb43b229-d659-4e79-9e71-b069a8692ccf	GROUP_STAGE	2026-06-16	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+bc11dfce-850a-46a6-9ef6-8396bc4b82f4	18	8c7b4562-0a67-43e9-b859-7bf6a20b5032	6ffe9b25-519c-47a1-b0a9-db1383fe2fdf	\N	\N	39abe34d-5bf4-4808-97fd-e57824b109b2	bb43b229-d659-4e79-9e71-b069a8692ccf	GROUP_STAGE	2026-06-16	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+cfb638ec-6de9-4379-88f8-4e0179fc41f4	19	4ca93a36-4c6c-446d-a4e0-45b58611a94f	ae786f4e-71b0-454a-aaf4-b43783e35b90	\N	\N	835a562f-69dd-48cc-ba63-91e3b5124858	7287001a-6aa7-470e-9a58-604d3288783c	GROUP_STAGE	2026-06-16	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+f05ceb5f-188e-418f-a824-d2a730d98c42	20	16eccf20-b94c-4531-9d45-46ac22da3725	1937d54e-3467-4f62-a517-68399f6345e5	\N	\N	268698e3-8b24-44b9-88e1-4972fe1a4d95	7287001a-6aa7-470e-9a58-604d3288783c	GROUP_STAGE	2026-06-16	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+974032f4-61e4-4c91-9831-0c4c328f4806	21	24b7ad52-c989-4991-a8be-24763c774cf3	e3c2f352-fdf0-4bba-8db4-5b228e006fef	\N	\N	308f8508-7db4-46db-a847-231a43d891c6	c682b2ad-93b0-41d9-9798-02cabf2abee3	GROUP_STAGE	2026-06-17	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+ce192b11-378f-43a3-83a0-67916e2a8f8a	22	607e0122-5e1b-467e-939e-cfc992e5b77a	353f2d37-2e15-4768-9360-1739eb566619	\N	\N	29fe1ea0-d08b-46ac-add1-f28052b20d9e	c682b2ad-93b0-41d9-9798-02cabf2abee3	GROUP_STAGE	2026-06-17	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+2db205c3-884d-4735-bb77-d275aa1ca68e	23	73b72ec1-5960-4d6d-b9d0-7be2fd174182	ea09e8b5-f54d-453c-9193-8b8f5507bafc	\N	\N	bebbe226-c787-4a94-9da6-4f3bb61668bf	a9fa10b5-10f2-421e-a3aa-87b9162b5741	GROUP_STAGE	2026-06-17	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+6e06ded5-752c-4883-be4f-e365b894fe95	24	fcdd9597-f6e2-4b9f-a5f9-fd25537f1fe9	f249f3e7-3778-4df2-b00e-877e7a069c4c	\N	\N	fd2c4c48-1a2d-4404-8a61-3c463e3e1604	a9fa10b5-10f2-421e-a3aa-87b9162b5741	GROUP_STAGE	2026-06-17	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+6fd59000-bc49-441a-ac54-2cb009cbb90a	25	5b071bac-ca7b-4d43-ad89-aec49b7a9125	f86303ec-6622-4ad6-8c7b-37fa7794278b	\N	\N	7bf6082f-0b9e-4a5c-b66d-d65135b06b79	3cbeb5b0-65b6-4c5c-b18b-7d495e8d8ada	GROUP_STAGE	2026-06-18	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+e5aaea8b-b613-4365-834f-403b225898b1	26	ca2dcc71-c693-4416-a10d-a6e93a9065db	87f78324-81f4-4632-a165-5cdf49b8c584	\N	\N	5de199da-30d0-416d-86e2-22f1f856fc73	afd0e898-4153-429d-91a5-c8dc3f8657ae	GROUP_STAGE	2026-06-18	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+2fcd958c-d433-48bc-9e7e-28a3a285ad7a	27	9a391cb4-7a8b-44b3-b3fc-8fabc9c191dd	24bbb80a-7470-4c8a-b049-7428051c5b64	\N	\N	136441ec-7c94-4653-85ba-d14896723180	afd0e898-4153-429d-91a5-c8dc3f8657ae	GROUP_STAGE	2026-06-18	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+924b06b4-399c-49ef-8944-c8e0c9e6d381	28	d8357f2b-e7be-47ad-8e06-997d09017409	a00312ad-544e-412e-818b-36d30cca9b42	\N	\N	ae327f2c-0b6c-48ef-bd94-a4398e9f5e32	3cbeb5b0-65b6-4c5c-b18b-7d495e8d8ada	GROUP_STAGE	2026-06-18	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+63b865ca-ae67-446c-baa6-9feac5443718	29	5ca38843-b961-43b7-93af-9cf7b01f413a	5518ebc2-8b76-462c-967f-e8c69df036c5	\N	\N	abd4e5ba-8844-4ee0-a25f-1166c70bbb14	fd8e1ba6-d943-4fc7-94ff-4c2e07ca7f39	GROUP_STAGE	2026-06-19	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+a250785e-fbff-45cc-9e3b-3f391736f23e	30	046f94fb-94e3-4a27-ab27-f1626991f2a3	aedc9635-8cf5-4d9e-98c1-ffe9ad53d4eb	\N	\N	39abe34d-5bf4-4808-97fd-e57824b109b2	fd8e1ba6-d943-4fc7-94ff-4c2e07ca7f39	GROUP_STAGE	2026-06-19	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+fb3959aa-fa66-447f-9c75-3936cfa38305	31	05595c2c-c33e-4a0b-9926-c9b70626cfd7	c3de716b-5774-4a23-9931-7c01d6cab198	\N	\N	268698e3-8b24-44b9-88e1-4972fe1a4d95	8bfa230d-56e6-4433-8cac-ee835a9bd54d	GROUP_STAGE	2026-06-19	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+e21bc159-0343-4244-bac2-ccdc2cd5c6a2	32	461b439e-7fb4-4f90-950f-86d0d072dbfd	ceeefb95-2f6e-4b6e-8ce7-5cf984b4f89d	\N	\N	ccb86ad1-6aaa-4c7f-b930-92f3b7845d6b	8bfa230d-56e6-4433-8cac-ee835a9bd54d	GROUP_STAGE	2026-06-19	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+a658828a-8758-4685-b95c-18394565790f	33	7d01399a-439b-4c88-8c08-bde1c8cca252	ceabb439-6efd-4805-a631-066a0f109209	\N	\N	308f8508-7db4-46db-a847-231a43d891c6	250ab00e-ed71-46fc-b694-8a06bae4e0c0	GROUP_STAGE	2026-06-20	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+415462f3-a422-4a22-a303-0736b014f273	34	6ebff7ee-a9e6-4824-8e5a-d82fa42eaccd	fe0fee1a-c034-4704-a1f0-947430d45fd0	\N	\N	835a562f-69dd-48cc-ba63-91e3b5124858	250ab00e-ed71-46fc-b694-8a06bae4e0c0	GROUP_STAGE	2026-06-20	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+ab806665-663b-4a15-a58a-0ed9728b4f2f	35	2b5de306-9957-416a-b86b-3f71cbf2d374	174cd9de-c812-4ae9-abe8-e2fd1afea784	\N	\N	bebbe226-c787-4a94-9da6-4f3bb61668bf	4a042c8a-28fb-4595-99e3-bf812085a960	GROUP_STAGE	2026-06-20	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+c9be4f18-553b-48d4-9dc8-b1639e0ce71b	36	2b1a9ed4-3d02-4403-b852-667450917c19	22968cb4-f2ac-414c-b223-2cb9b27e9ce7	\N	\N	118f48e1-bdef-43cb-b228-2c64f72cef76	4a042c8a-28fb-4595-99e3-bf812085a960	GROUP_STAGE	2026-06-20	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+f59577fb-694b-401c-860e-ad6f4c633b7e	37	42ef1870-b223-461f-be38-3b811be0b36a	e799cb70-2e87-408d-a9ee-6ef951d6b83b	\N	\N	af35381c-b7cc-4f3d-94a6-bd42d1a660da	a366c70f-455b-4d06-96b2-5b1101d54568	GROUP_STAGE	2026-06-21	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+acd24cda-d3d4-4748-a39a-03ca266d4233	38	f5905ac1-2444-4da3-8721-627f797e5b07	1061ad89-a510-49f3-b732-db7ced0d0e44	\N	\N	7bf6082f-0b9e-4a5c-b66d-d65135b06b79	a366c70f-455b-4d06-96b2-5b1101d54568	GROUP_STAGE	2026-06-21	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+35843214-3fa2-4326-bf41-50ceef98df22	39	2276d385-6c81-4942-996a-a38faca8483e	8568d38c-9aa3-4734-b7c3-99983b0b023e	\N	\N	5de199da-30d0-416d-86e2-22f1f856fc73	6a39d63d-bb7d-48f0-b52f-45074647c2f0	GROUP_STAGE	2026-06-21	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+59230be0-693f-4c43-b708-282fc054ed08	40	38b2417a-12f3-4e62-8985-33f6988ea703	216a423c-4c10-4114-92e8-1bf990d129b2	\N	\N	136441ec-7c94-4653-85ba-d14896723180	6a39d63d-bb7d-48f0-b52f-45074647c2f0	GROUP_STAGE	2026-06-21	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+080c0939-4367-4a5a-ba54-e59c87e61193	41	b7e9ab10-5f45-4997-b1c0-b40bb484de6e	8c7b4562-0a67-43e9-b859-7bf6a20b5032	\N	\N	e3ae9274-aca6-44f1-8856-a40aa8e11ee7	bb43b229-d659-4e79-9e71-b069a8692ccf	GROUP_STAGE	2026-06-22	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+9decc656-1c21-44d1-b5a7-9e7bd097f12e	42	7ae4c138-dc0b-4800-96c5-d2af36b86621	6ffe9b25-519c-47a1-b0a9-db1383fe2fdf	\N	\N	abd4e5ba-8844-4ee0-a25f-1166c70bbb14	bb43b229-d659-4e79-9e71-b069a8692ccf	GROUP_STAGE	2026-06-22	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+898ad2f6-7bc8-4952-b714-9dbbda19904c	43	ae786f4e-71b0-454a-aaf4-b43783e35b90	16eccf20-b94c-4531-9d45-46ac22da3725	\N	\N	29fe1ea0-d08b-46ac-add1-f28052b20d9e	7287001a-6aa7-470e-9a58-604d3288783c	GROUP_STAGE	2026-06-22	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+8b3be927-02cc-44be-bca3-904b9f66a072	44	4ca93a36-4c6c-446d-a4e0-45b58611a94f	1937d54e-3467-4f62-a517-68399f6345e5	\N	\N	268698e3-8b24-44b9-88e1-4972fe1a4d95	7287001a-6aa7-470e-9a58-604d3288783c	GROUP_STAGE	2026-06-22	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+74522f31-fa5e-4266-85a6-ce6cb0d3678d	45	e3c2f352-fdf0-4bba-8db4-5b228e006fef	607e0122-5e1b-467e-939e-cfc992e5b77a	\N	\N	39abe34d-5bf4-4808-97fd-e57824b109b2	c682b2ad-93b0-41d9-9798-02cabf2abee3	GROUP_STAGE	2026-06-23	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+a788829d-ed7b-4da9-b9b2-6cd7a70a4135	46	24b7ad52-c989-4991-a8be-24763c774cf3	353f2d37-2e15-4768-9360-1739eb566619	\N	\N	308f8508-7db4-46db-a847-231a43d891c6	c682b2ad-93b0-41d9-9798-02cabf2abee3	GROUP_STAGE	2026-06-23	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+26a864a6-1823-4a03-8c0f-9bbbd7f60589	47	ea09e8b5-f54d-453c-9193-8b8f5507bafc	fcdd9597-f6e2-4b9f-a5f9-fd25537f1fe9	\N	\N	bebbe226-c787-4a94-9da6-4f3bb61668bf	a9fa10b5-10f2-421e-a3aa-87b9162b5741	GROUP_STAGE	2026-06-23	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+213a1592-c254-4814-8b57-99eaf68fead6	48	73b72ec1-5960-4d6d-b9d0-7be2fd174182	f249f3e7-3778-4df2-b00e-877e7a069c4c	\N	\N	ae327f2c-0b6c-48ef-bd94-a4398e9f5e32	a9fa10b5-10f2-421e-a3aa-87b9162b5741	GROUP_STAGE	2026-06-23	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+b82b1d38-107e-445d-81ae-306064932f9c	49	aedc9635-8cf5-4d9e-98c1-ffe9ad53d4eb	5ca38843-b961-43b7-93af-9cf7b01f413a	\N	\N	af35381c-b7cc-4f3d-94a6-bd42d1a660da	fd8e1ba6-d943-4fc7-94ff-4c2e07ca7f39	GROUP_STAGE	2026-06-24	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+694f35b8-0260-4408-8b72-e8f36a247670	50	046f94fb-94e3-4a27-ab27-f1626991f2a3	5518ebc2-8b76-462c-967f-e8c69df036c5	\N	\N	7bf6082f-0b9e-4a5c-b66d-d65135b06b79	fd8e1ba6-d943-4fc7-94ff-4c2e07ca7f39	GROUP_STAGE	2026-06-24	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+6e3cd4d9-8958-4612-a6bf-e119dd23aeeb	51	24bbb80a-7470-4c8a-b049-7428051c5b64	ca2dcc71-c693-4416-a10d-a6e93a9065db	\N	\N	136441ec-7c94-4653-85ba-d14896723180	afd0e898-4153-429d-91a5-c8dc3f8657ae	GROUP_STAGE	2026-06-24	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+9b1437c1-68c5-42e8-a628-e39fd9e13c94	52	9a391cb4-7a8b-44b3-b3fc-8fabc9c191dd	87f78324-81f4-4632-a165-5cdf49b8c584	\N	\N	ccb86ad1-6aaa-4c7f-b930-92f3b7845d6b	afd0e898-4153-429d-91a5-c8dc3f8657ae	GROUP_STAGE	2026-06-24	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+e083834e-b57b-4227-addc-6730b6f80e06	53	a00312ad-544e-412e-818b-36d30cca9b42	5b071bac-ca7b-4d43-ad89-aec49b7a9125	\N	\N	fd2c4c48-1a2d-4404-8a61-3c463e3e1604	3cbeb5b0-65b6-4c5c-b18b-7d495e8d8ada	GROUP_STAGE	2026-06-24	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+754a5484-2fd7-4118-8da1-8f11f41f7861	54	d8357f2b-e7be-47ad-8e06-997d09017409	f86303ec-6622-4ad6-8c7b-37fa7794278b	\N	\N	118f48e1-bdef-43cb-b228-2c64f72cef76	3cbeb5b0-65b6-4c5c-b18b-7d495e8d8ada	GROUP_STAGE	2026-06-24	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+7e6aa53f-8f9c-4103-bde2-193dcbd1afda	55	fe0fee1a-c034-4704-a1f0-947430d45fd0	7d01399a-439b-4c88-8c08-bde1c8cca252	\N	\N	abd4e5ba-8844-4ee0-a25f-1166c70bbb14	250ab00e-ed71-46fc-b694-8a06bae4e0c0	GROUP_STAGE	2026-06-25	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+77eb5fd4-65e6-4442-be55-189eca3f7caf	56	6ebff7ee-a9e6-4824-8e5a-d82fa42eaccd	ceabb439-6efd-4805-a631-066a0f109209	\N	\N	e3ae9274-aca6-44f1-8856-a40aa8e11ee7	250ab00e-ed71-46fc-b694-8a06bae4e0c0	GROUP_STAGE	2026-06-25	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+1eb1ac2c-a829-440d-a692-d1ee8c8cc19c	57	22968cb4-f2ac-414c-b223-2cb9b27e9ce7	2b5de306-9957-416a-b86b-3f71cbf2d374	\N	\N	29fe1ea0-d08b-46ac-add1-f28052b20d9e	4a042c8a-28fb-4595-99e3-bf812085a960	GROUP_STAGE	2026-06-25	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+84c88d30-cf76-4625-83b3-f5ad13fada00	58	2b1a9ed4-3d02-4403-b852-667450917c19	174cd9de-c812-4ae9-abe8-e2fd1afea784	\N	\N	835a562f-69dd-48cc-ba63-91e3b5124858	4a042c8a-28fb-4595-99e3-bf812085a960	GROUP_STAGE	2026-06-25	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+407059c1-1303-410c-9258-ffdd428fe1cc	59	05595c2c-c33e-4a0b-9926-c9b70626cfd7	c3de716b-5774-4a23-9931-7c01d6cab198	\N	\N	5de199da-30d0-416d-86e2-22f1f856fc73	8bfa230d-56e6-4433-8cac-ee835a9bd54d	GROUP_STAGE	2026-06-25	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+f05efd2a-6c01-45ac-bd55-e89783186997	60	461b439e-7fb4-4f90-950f-86d0d072dbfd	ceeefb95-2f6e-4b6e-8ce7-5cf984b4f89d	\N	\N	268698e3-8b24-44b9-88e1-4972fe1a4d95	8bfa230d-56e6-4433-8cac-ee835a9bd54d	GROUP_STAGE	2026-06-25	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+19994f1f-0001-4239-b21d-514b561b45cd	61	6ffe9b25-519c-47a1-b0a9-db1383fe2fdf	b7e9ab10-5f45-4997-b1c0-b40bb484de6e	\N	\N	39abe34d-5bf4-4808-97fd-e57824b109b2	bb43b229-d659-4e79-9e71-b069a8692ccf	GROUP_STAGE	2026-06-26	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+b26a2248-8e55-4197-8932-e3784af9c5af	62	7ae4c138-dc0b-4800-96c5-d2af36b86621	8c7b4562-0a67-43e9-b859-7bf6a20b5032	\N	\N	308f8508-7db4-46db-a847-231a43d891c6	bb43b229-d659-4e79-9e71-b069a8692ccf	GROUP_STAGE	2026-06-26	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+bec47e79-500c-475f-8896-cbccde6d5de5	63	216a423c-4c10-4114-92e8-1bf990d129b2	2276d385-6c81-4942-996a-a38faca8483e	\N	\N	ccb86ad1-6aaa-4c7f-b930-92f3b7845d6b	6a39d63d-bb7d-48f0-b52f-45074647c2f0	GROUP_STAGE	2026-06-26	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+d1e9ee10-37c6-4b53-b1dd-f144c4f4d95c	64	38b2417a-12f3-4e62-8985-33f6988ea703	8568d38c-9aa3-4734-b7c3-99983b0b023e	\N	\N	136441ec-7c94-4653-85ba-d14896723180	6a39d63d-bb7d-48f0-b52f-45074647c2f0	GROUP_STAGE	2026-06-26	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+15499219-4bcc-4153-a322-ffde17acb273	65	1061ad89-a510-49f3-b732-db7ced0d0e44	42ef1870-b223-461f-be38-3b811be0b36a	\N	\N	bebbe226-c787-4a94-9da6-4f3bb61668bf	a366c70f-455b-4d06-96b2-5b1101d54568	GROUP_STAGE	2026-06-26	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+7fb0bf47-8748-40b1-90eb-23d318b7b2b8	66	f5905ac1-2444-4da3-8721-627f797e5b07	e799cb70-2e87-408d-a9ee-6ef951d6b83b	\N	\N	ae327f2c-0b6c-48ef-bd94-a4398e9f5e32	a366c70f-455b-4d06-96b2-5b1101d54568	GROUP_STAGE	2026-06-26	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+377526dd-b345-4273-b3f2-36d4bac7ff66	67	353f2d37-2e15-4768-9360-1739eb566619	e3c2f352-fdf0-4bba-8db4-5b228e006fef	\N	\N	e3ae9274-aca6-44f1-8856-a40aa8e11ee7	c682b2ad-93b0-41d9-9798-02cabf2abee3	GROUP_STAGE	2026-06-27	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+e0ce9237-cdbd-45b8-87d0-e106dec77222	68	24b7ad52-c989-4991-a8be-24763c774cf3	607e0122-5e1b-467e-939e-cfc992e5b77a	\N	\N	abd4e5ba-8844-4ee0-a25f-1166c70bbb14	c682b2ad-93b0-41d9-9798-02cabf2abee3	GROUP_STAGE	2026-06-27	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+c2e13f97-275a-4a06-b665-63d792e08e9e	69	1937d54e-3467-4f62-a517-68399f6345e5	ae786f4e-71b0-454a-aaf4-b43783e35b90	\N	\N	835a562f-69dd-48cc-ba63-91e3b5124858	7287001a-6aa7-470e-9a58-604d3288783c	GROUP_STAGE	2026-06-27	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+e42bf0ba-d30f-47c9-b0ba-66c26918907a	70	4ca93a36-4c6c-446d-a4e0-45b58611a94f	16eccf20-b94c-4531-9d45-46ac22da3725	\N	\N	29fe1ea0-d08b-46ac-add1-f28052b20d9e	7287001a-6aa7-470e-9a58-604d3288783c	GROUP_STAGE	2026-06-27	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+fb9705cf-3b62-4494-bec5-b164e1106666	71	f249f3e7-3778-4df2-b00e-877e7a069c4c	ea09e8b5-f54d-453c-9193-8b8f5507bafc	\N	\N	af35381c-b7cc-4f3d-94a6-bd42d1a660da	a9fa10b5-10f2-421e-a3aa-87b9162b5741	GROUP_STAGE	2026-06-27	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+9cbcee38-f1cb-418d-b80c-748abadd2b69	72	73b72ec1-5960-4d6d-b9d0-7be2fd174182	fcdd9597-f6e2-4b9f-a5f9-fd25537f1fe9	\N	\N	7bf6082f-0b9e-4a5c-b66d-d65135b06b79	a9fa10b5-10f2-421e-a3aa-87b9162b5741	GROUP_STAGE	2026-06-27	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	\N	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+c3d37353-5861-4771-b64f-ca440e607e26	73	\N	\N	Group A runners-up	Group B runners-up	5de199da-30d0-416d-86e2-22f1f856fc73	\N	ROUND_OF_32	2026-06-28	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	{53,54,51,52}	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+58b5f381-94b1-4f88-8725-4bd85192a2bf	74	\N	\N	Group E winners	Group A/B/C/D/F third place	39abe34d-5bf4-4808-97fd-e57824b109b2	\N	ROUND_OF_32	2026-06-29	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	{55,56,53,54,51,52,49,50,59,60,57,58}	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+ff0e9b6c-eb2f-4a8a-99c0-d8025873c65d	75	\N	\N	Group F winners	Group C runners-up	118f48e1-bdef-43cb-b228-2c64f72cef76	\N	ROUND_OF_32	2026-06-29	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	{57,58,49,50}	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+ed577c7f-4487-4ffc-a0e8-3462129d2673	76	\N	\N	Group C winners	Group F runners-up	bebbe226-c787-4a94-9da6-4f3bb61668bf	\N	ROUND_OF_32	2026-06-29	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	{49,50,57,58}	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+1a6bc658-5fb8-4ced-9771-b9b87bebd8f3	77	\N	\N	Group I winners	Group C/D/F/G/H third place	e3ae9274-aca6-44f1-8856-a40aa8e11ee7	\N	ROUND_OF_32	2026-06-30	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	{61,62,49,50,59,60,57,58,63,64,65,66}	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+29821b7f-05ad-49e9-b529-ead95d62bbfa	78	\N	\N	Group E runners-up	Group I runners-up	29fe1ea0-d08b-46ac-add1-f28052b20d9e	\N	ROUND_OF_32	2026-06-30	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	{55,56,61,62}	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+1c5badfc-338b-418c-8aa4-1f8335eca1e2	79	\N	\N	Group A winners	Group C/E/F/H/I third place	fd2c4c48-1a2d-4404-8a61-3c463e3e1604	\N	ROUND_OF_32	2026-06-30	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	{53,54,49,50,55,56,57,58,65,66,61,62}	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+ecf7bad0-d93e-4c26-9a70-ad7c51155303	80	\N	\N	Group L winners	Group E/H/I/J/K third place	7bf6082f-0b9e-4a5c-b66d-d65135b06b79	\N	ROUND_OF_32	2026-07-01	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	{67,68,55,56,65,66,61,62,69,70,71,72}	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+5cab3dc3-68e5-4ee9-87d1-d47540ee1fc0	81	\N	\N	Group D winners	Group B/E/F/I/J third place	268698e3-8b24-44b9-88e1-4972fe1a4d95	\N	ROUND_OF_32	2026-07-01	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	{59,60,51,52,55,56,57,58,61,62,69,70}	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+cbec365e-ed55-4024-b5bf-243da8948968	82	\N	\N	Group G winners	Group A/E/H/I/J third place	ccb86ad1-6aaa-4c7f-b930-92f3b7845d6b	\N	ROUND_OF_32	2026-07-01	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	{63,64,53,54,55,56,65,66,61,62,69,70}	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+6d3412e3-21c3-41d7-bc41-6c65f55d37c6	83	\N	\N	Group K runners-up	Group L runners-up	308f8508-7db4-46db-a847-231a43d891c6	\N	ROUND_OF_32	2026-07-02	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	{71,72,67,68}	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+917ab74b-d19e-4ee1-a5ce-4d7fce823a8e	84	\N	\N	Group H winners	Group J runners-up	5de199da-30d0-416d-86e2-22f1f856fc73	\N	ROUND_OF_32	2026-07-02	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	{65,66,69,70}	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+dea81ef5-214a-42b2-938d-52975bccee7a	85	\N	\N	Group B winners	Group E/F/G/I/J third place	136441ec-7c94-4653-85ba-d14896723180	\N	ROUND_OF_32	2026-07-02	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	{51,52,55,56,57,58,63,64,61,62,69,70}	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+670c98c6-c8b2-4418-a51d-81dd03a9363a	86	\N	\N	Group J winners	Group H runners-up	af35381c-b7cc-4f3d-94a6-bd42d1a660da	\N	ROUND_OF_32	2026-07-03	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	{69,70,65,66}	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+d37d123b-5e96-455c-9154-bb2e8e161d74	87	\N	\N	Group K winners	Group D/E/I/J/L third place	835a562f-69dd-48cc-ba63-91e3b5124858	\N	ROUND_OF_32	2026-07-03	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	{71,72,59,60,55,56,61,62,69,70,67,68}	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+48fe38da-0c9e-414b-809e-4a771d27ed4b	88	\N	\N	Group D runners-up	Group G runners-up	29fe1ea0-d08b-46ac-add1-f28052b20d9e	\N	ROUND_OF_32	2026-07-03	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	{59,60,63,64}	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+20187810-aadf-4a86-a83b-afd40af70d09	89	\N	\N	Winner match 74	Winner match 77	abd4e5ba-8844-4ee0-a25f-1166c70bbb14	\N	ROUND_OF_16	2026-07-04	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	{74,77}	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+1488c1eb-84bc-4bdb-aad8-01205deb85f4	90	\N	\N	Winner match 73	Winner match 75	bebbe226-c787-4a94-9da6-4f3bb61668bf	\N	ROUND_OF_16	2026-07-04	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	{73,75}	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+6d73f6c8-f4df-4f4d-b46e-a7121fe02688	91	\N	\N	Winner match 76	Winner match 78	e3ae9274-aca6-44f1-8856-a40aa8e11ee7	\N	ROUND_OF_16	2026-07-05	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	{76,78}	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+e2eaf832-0a48-4294-be43-0938f27fb7d2	92	\N	\N	Winner match 79	Winner match 80	fd2c4c48-1a2d-4404-8a61-3c463e3e1604	\N	ROUND_OF_16	2026-07-05	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	{79,80}	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+1cf9ebe9-f6a4-402a-af28-0db6df2ccdf8	93	\N	\N	Winner match 83	Winner match 84	29fe1ea0-d08b-46ac-add1-f28052b20d9e	\N	ROUND_OF_16	2026-07-06	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	{83,84}	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+3da5cb8f-b9be-406f-856b-fb46ea78ce8b	94	\N	\N	Winner match 81	Winner match 82	ccb86ad1-6aaa-4c7f-b930-92f3b7845d6b	\N	ROUND_OF_16	2026-07-06	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	{81,82}	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+b13e7560-9157-4f72-93fa-1d8b623fe88f	95	\N	\N	Winner match 86	Winner match 88	7bf6082f-0b9e-4a5c-b66d-d65135b06b79	\N	ROUND_OF_16	2026-07-07	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	{86,88}	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+48e6e2e9-737c-4548-982c-fa758baad7aa	96	\N	\N	Winner match 85	Winner match 87	136441ec-7c94-4653-85ba-d14896723180	\N	ROUND_OF_16	2026-07-07	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	{85,87}	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+858b1fab-5fc5-4d41-a25b-cb9505936088	97	\N	\N	Winner match 89	Winner match 90	39abe34d-5bf4-4808-97fd-e57824b109b2	\N	QUARTER_FINAL	2026-07-09	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	{89,90}	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+a0ab0552-778b-4a13-a677-f2fd65dcf8cc	98	\N	\N	Winner match 93	Winner match 94	5de199da-30d0-416d-86e2-22f1f856fc73	\N	QUARTER_FINAL	2026-07-10	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	{93,94}	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+4f05462d-cc82-43b8-8777-adb4be937e33	99	\N	\N	Winner match 91	Winner match 92	af35381c-b7cc-4f3d-94a6-bd42d1a660da	\N	QUARTER_FINAL	2026-07-11	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	{91,92}	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+ad852c49-ff0b-4213-a9ef-14b322bf0b3e	100	\N	\N	Winner match 95	Winner match 96	835a562f-69dd-48cc-ba63-91e3b5124858	\N	QUARTER_FINAL	2026-07-11	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	{95,96}	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+09216ecf-75b4-463b-b1f2-8dcde961c8df	101	\N	\N	Winner match 97	Winner match 98	29fe1ea0-d08b-46ac-add1-f28052b20d9e	\N	SEMI_FINAL	2026-07-14	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	{97,98}	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+fe0be9ce-eb40-467f-b725-5752e86416ad	102	\N	\N	Winner match 99	Winner match 100	7bf6082f-0b9e-4a5c-b66d-d65135b06b79	\N	SEMI_FINAL	2026-07-15	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	{99,100}	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+841ec92b-8fad-45ca-b038-6638fea03b49	103	\N	\N	Loser match 101	Loser match 102	af35381c-b7cc-4f3d-94a6-bd42d1a660da	\N	THIRD_PLACE	2026-07-18	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	{101,102}	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+274df9bb-74b3-49d6-be95-97acc2b62524	104	\N	\N	Winner match 101	Winner match 102	e3ae9274-aca6-44f1-8856-a40aa8e11ee7	\N	FINAL	2026-07-19	20:00:00	\N	\N	\N	\N	\N	\N	SCHEDULED	2026-06-12 02:00:00+02	{101,102}	2025-10-21 11:49:19.503324+02	2025-10-21 11:49:19.503324+02
+\.
+
+
+--
+-- Data for Name: stadiums; Type: TABLE DATA; Schema: public; Owner: root
+--
+
+COPY public.stadiums (id, code, name, city, country, timezone, capacity, created_at, updated_at) FROM stdin;
+136441ec-7c94-4653-85ba-d14896723180	CAN_VAN_BC_PLACE	BC Place	Vancouver	CAN	America/Vancouver	54000	2025-10-21 10:28:31.868923+02	2025-10-21 10:28:31.868923+02
+308f8508-7db4-46db-a847-231a43d891c6	CAN_TOR_BMO_FIELD	BMO Field	Toronto	CAN	America/Toronto	45000	2025-10-21 10:28:31.868923+02	2025-10-21 10:28:31.868923+02
+fd2c4c48-1a2d-4404-8a61-3c463e3e1604	MEX_CDMX_AZTECA	Estadio Azteca	Mexico City	MEX	America/Mexico_City	83000	2025-10-21 10:28:31.868923+02	2025-10-21 10:28:31.868923+02
+ae327f2c-0b6c-48ef-bd94-a4398e9f5e32	MEX_GDL_AKRON	Estadio Akron	Zapopan (Guadalajara)	MEX	America/Guadalajara	48000	2025-10-21 10:28:31.868923+02	2025-10-21 10:28:31.868923+02
+118f48e1-bdef-43cb-b228-2c64f72cef76	MEX_MTY_BBVA	Estadio BBVA	Guadalupe (Monterrey)	MEX	America/Monterrey	53500	2025-10-21 10:28:31.868923+02	2025-10-21 10:28:31.868923+02
+e3ae9274-aca6-44f1-8856-a40aa8e11ee7	USA_NYJ_METLIFE	MetLife Stadium	East Rutherford (NY/NJ)	USA	America/New_York	82500	2025-10-21 10:28:31.868923+02	2025-10-21 10:28:31.868923+02
+29fe1ea0-d08b-46ac-add1-f28052b20d9e	USA_DAL_ATT	AT&T Stadium	Arlington (Dallas)	USA	America/Chicago	94000	2025-10-21 10:28:31.868923+02	2025-10-21 10:28:31.868923+02
+7bf6082f-0b9e-4a5c-b66d-d65135b06b79	USA_ATL_MERCEDES_BENZ	Mercedes-Benz Stadium	Atlanta	USA	America/New_York	75000	2025-10-21 10:28:31.868923+02	2025-10-21 10:28:31.868923+02
+835a562f-69dd-48cc-ba63-91e3b5124858	USA_KC_ARROWHEAD	GEHA Field at Arrowhead	Kansas City	USA	America/Chicago	73000	2025-10-21 10:28:31.868923+02	2025-10-21 10:28:31.868923+02
+bebbe226-c787-4a94-9da6-4f3bb61668bf	USA_HOU_NRG	NRG Stadium	Houston	USA	America/Chicago	72000	2025-10-21 10:28:31.868923+02	2025-10-21 10:28:31.868923+02
+268698e3-8b24-44b9-88e1-4972fe1a4d95	USA_SF_LEVIS	Levi's Stadium	Santa Clara (Bay Area)	USA	America/Los_Angeles	71000	2025-10-21 10:28:31.868923+02	2025-10-21 10:28:31.868923+02
+5de199da-30d0-416d-86e2-22f1f856fc73	USA_LA_SOFI	SoFi Stadium	Inglewood (Los Angeles)	USA	America/Los_Angeles	70000	2025-10-21 10:28:31.868923+02	2025-10-21 10:28:31.868923+02
+abd4e5ba-8844-4ee0-a25f-1166c70bbb14	USA_PHI_LINCOLN	Lincoln Financial Field	Philadelphia	USA	America/New_York	69000	2025-10-21 10:28:31.868923+02	2025-10-21 10:28:31.868923+02
+ccb86ad1-6aaa-4c7f-b930-92f3b7845d6b	USA_SEA_LUMEN	Lumen Field	Seattle	USA	America/Los_Angeles	69000	2025-10-21 10:28:31.868923+02	2025-10-21 10:28:31.868923+02
+39abe34d-5bf4-4808-97fd-e57824b109b2	USA_BOS_GILLETTE	Gillette Stadium	Foxborough (Boston)	USA	America/New_York	65000	2025-10-21 10:28:31.868923+02	2025-10-21 10:28:31.868923+02
+af35381c-b7cc-4f3d-94a6-bd42d1a660da	USA_MIA_HARD_ROCK	Hard Rock Stadium	Miami Gardens	USA	America/New_York	65000	2025-10-21 10:28:31.868923+02	2025-10-21 10:28:31.868923+02
+\.
+
+
+--
+-- Data for Name: teams; Type: TABLE DATA; Schema: public; Owner: root
+--
+
+COPY public.teams (id, name, fifa_code, confederation, is_host, created_at, updated_at) FROM stdin;
+9a391cb4-7a8b-44b3-b3fc-8fabc9c191dd	Canada	CAN	CONCACAF	t	2025-10-21 10:55:00.013812+02	2025-10-21 10:55:00.013812+02
+d8357f2b-e7be-47ad-8e06-997d09017409	Mexico	MEX	CONCACAF	t	2025-10-21 10:55:00.013812+02	2025-10-21 10:55:00.013812+02
+461b439e-7fb4-4f90-950f-86d0d072dbfd	United States	USA	CONCACAF	t	2025-10-21 10:55:00.013812+02	2025-10-21 10:55:00.013812+02
+5ca38843-b961-43b7-93af-9cf7b01f413a	Costa Rica	CRC	CONCACAF	f	2025-10-21 10:55:00.013812+02	2025-10-21 10:55:00.013812+02
+c3de716b-5774-4a23-9931-7c01d6cab198	Jamaica	JAM	CONCACAF	f	2025-10-21 10:55:00.013812+02	2025-10-21 10:55:00.013812+02
+2b5de306-9957-416a-b86b-3f71cbf2d374	Panama	PAN	CONCACAF	f	2025-10-21 10:55:00.013812+02	2025-10-21 10:55:00.013812+02
+ca2dcc71-c693-4416-a10d-a6e93a9065db	Honduras	HON	CONCACAF	f	2025-10-21 10:55:00.013812+02	2025-10-21 10:55:00.013812+02
+caeb2038-32cd-49b2-aa67-b27840492f39	El Salvador	SLV	CONCACAF	f	2025-10-21 10:55:00.013812+02	2025-10-21 10:55:00.013812+02
+42ef1870-b223-461f-be38-3b811be0b36a	Trinidad and Tobago	TRI	CONCACAF	f	2025-10-21 10:55:00.013812+02	2025-10-21 10:55:00.013812+02
+ae786f4e-71b0-454a-aaf4-b43783e35b90	Guatemala	GUA	CONCACAF	f	2025-10-21 10:55:00.013812+02	2025-10-21 10:55:00.013812+02
+ea09e8b5-f54d-453c-9193-8b8f5507bafc	Curacao	CUW	CONCACAF	f	2025-10-21 10:55:00.013812+02	2025-10-21 10:55:00.013812+02
+216a423c-4c10-4114-92e8-1bf990d129b2	Australia	AUS	AFC	f	2025-10-21 10:55:00.013812+02	2025-10-21 10:55:00.013812+02
+f249f3e7-3778-4df2-b00e-877e7a069c4c	IR Iran	IRN	AFC	f	2025-10-21 10:55:00.013812+02	2025-10-21 10:55:00.013812+02
+aedc9635-8cf5-4d9e-98c1-ffe9ad53d4eb	Japan	JPN	AFC	f	2025-10-21 10:55:00.013812+02	2025-10-21 10:55:00.013812+02
+24c6c493-8b51-4af9-a613-32588104c34a	Jordan	JOR	AFC	f	2025-10-21 10:55:00.013812+02	2025-10-21 10:55:00.013812+02
+05595c2c-c33e-4a0b-9926-c9b70626cfd7	Korea Republic	KOR	AFC	f	2025-10-21 10:55:00.013812+02	2025-10-21 10:55:00.013812+02
+2276d385-6c81-4942-996a-a38faca8483e	Qatar	QAT	AFC	f	2025-10-21 10:55:00.013812+02	2025-10-21 10:55:00.013812+02
+e3c2f352-fdf0-4bba-8db4-5b228e006fef	Saudi Arabia	KSA	AFC	f	2025-10-21 10:55:00.013812+02	2025-10-21 10:55:00.013812+02
+7d01399a-439b-4c88-8c08-bde1c8cca252	Uzbekistan	UZB	AFC	f	2025-10-21 10:55:00.013812+02	2025-10-21 10:55:00.013812+02
+22968cb4-f2ac-414c-b223-2cb9b27e9ce7	Algeria	ALG	CAF	f	2025-10-21 10:55:00.013812+02	2025-10-21 10:55:00.013812+02
+b7e9ab10-5f45-4997-b1c0-b40bb484de6e	Cabo Verde	CPV	CAF	f	2025-10-21 10:55:00.013812+02	2025-10-21 10:55:00.013812+02
+1937d54e-3467-4f62-a517-68399f6345e5	Côte d'Ivoire	CIV	CAF	f	2025-10-21 10:55:00.013812+02	2025-10-21 10:55:00.013812+02
+a00312ad-544e-412e-818b-36d30cca9b42	Egypt	EGY	CAF	f	2025-10-21 10:55:00.013812+02	2025-10-21 10:55:00.013812+02
+24bbb80a-7470-4c8a-b049-7428051c5b64	Ghana	GHA	CAF	f	2025-10-21 10:55:00.013812+02	2025-10-21 10:55:00.013812+02
+e799cb70-2e87-408d-a9ee-6ef951d6b83b	Morocco	MAR	CAF	f	2025-10-21 10:55:00.013812+02	2025-10-21 10:55:00.013812+02
+6ffe9b25-519c-47a1-b0a9-db1383fe2fdf	Senegal	SEN	CAF	f	2025-10-21 10:55:00.013812+02	2025-10-21 10:55:00.013812+02
+353f2d37-2e15-4768-9360-1739eb566619	South Africa	RSA	CAF	f	2025-10-21 10:55:00.013812+02	2025-10-21 10:55:00.013812+02
+fe0fee1a-c034-4704-a1f0-947430d45fd0	Tunisia	TUN	CAF	f	2025-10-21 10:55:00.013812+02	2025-10-21 10:55:00.013812+02
+046f94fb-94e3-4a27-ab27-f1626991f2a3	Argentina	ARG	CONMEBOL	f	2025-10-21 10:55:00.013812+02	2025-10-21 10:55:00.013812+02
+38b2417a-12f3-4e62-8985-33f6988ea703	Brazil	BRA	CONMEBOL	f	2025-10-21 10:55:00.013812+02	2025-10-21 10:55:00.013812+02
+ceabb439-6efd-4805-a631-066a0f109209	Colombia	COL	CONMEBOL	f	2025-10-21 10:55:00.013812+02	2025-10-21 10:55:00.013812+02
+1061ad89-a510-49f3-b732-db7ced0d0e44	Ecuador	ECU	CONMEBOL	f	2025-10-21 10:55:00.013812+02	2025-10-21 10:55:00.013812+02
+5c2fda49-1535-4471-9b96-1efe6d6078d0	Paraguay	PAR	CONMEBOL	f	2025-10-21 10:55:00.013812+02	2025-10-21 10:55:00.013812+02
+f86303ec-6622-4ad6-8c7b-37fa7794278b	Uruguay	URU	CONMEBOL	f	2025-10-21 10:55:00.013812+02	2025-10-21 10:55:00.013812+02
+5b071bac-ca7b-4d43-ad89-aec49b7a9125	New Zealand	NZL	OFC	f	2025-10-21 10:55:00.013812+02	2025-10-21 10:55:00.013812+02
+2b1a9ed4-3d02-4403-b852-667450917c19	England	ENG	UEFA	f	2025-10-21 10:55:00.013812+02	2025-10-21 10:55:00.013812+02
+73b72ec1-5960-4d6d-b9d0-7be2fd174182	Spain	ESP	UEFA	f	2025-10-21 10:55:00.013812+02	2025-10-21 10:55:00.013812+02
+4ca93a36-4c6c-446d-a4e0-45b58611a94f	Germany	GER	UEFA	f	2025-10-21 10:55:00.013812+02	2025-10-21 10:55:00.013812+02
+87f78324-81f4-4632-a165-5cdf49b8c584	Switzerland	SUI	UEFA	f	2025-10-21 10:55:00.013812+02	2025-10-21 10:55:00.013812+02
+174cd9de-c812-4ae9-abe8-e2fd1afea784	Denmark	DEN	UEFA	f	2025-10-21 10:55:00.013812+02	2025-10-21 10:55:00.013812+02
+6ebff7ee-a9e6-4824-8e5a-d82fa42eaccd	France	FRA	UEFA	f	2025-10-21 10:55:00.013812+02	2025-10-21 10:55:00.013812+02
+f5905ac1-2444-4da3-8721-627f797e5b07	Portugal	POR	UEFA	f	2025-10-21 10:55:00.013812+02	2025-10-21 10:55:00.013812+02
+24b7ad52-c989-4991-a8be-24763c774cf3	Netherlands	NED	UEFA	f	2025-10-21 10:55:00.013812+02	2025-10-21 10:55:00.013812+02
+8c7b4562-0a67-43e9-b859-7bf6a20b5032	Austria	AUT	UEFA	f	2025-10-21 10:55:00.013812+02	2025-10-21 10:55:00.013812+02
+5518ebc2-8b76-462c-967f-e8c69df036c5	Belgium	BEL	UEFA	f	2025-10-21 10:55:00.013812+02	2025-10-21 10:55:00.013812+02
+ceeefb95-2f6e-4b6e-8ce7-5cf984b4f89d	Croatia	CRO	UEFA	f	2025-10-21 10:55:00.013812+02	2025-10-21 10:55:00.013812+02
+7ae4c138-dc0b-4800-96c5-d2af36b86621	Italy	ITA	UEFA	f	2025-10-21 10:55:00.013812+02	2025-10-21 10:55:00.013812+02
+8568d38c-9aa3-4734-b7c3-99983b0b023e	Poland	POL	UEFA	f	2025-10-21 10:55:00.013812+02	2025-10-21 10:55:00.013812+02
+16eccf20-b94c-4531-9d45-46ac22da3725	Ukraine	UKR	UEFA	f	2025-10-21 10:55:00.013812+02	2025-10-21 10:55:00.013812+02
+607e0122-5e1b-467e-939e-cfc992e5b77a	Sweden	SWE	UEFA	f	2025-10-21 10:55:00.013812+02	2025-10-21 10:55:00.013812+02
+fcdd9597-f6e2-4b9f-a5f9-fd25537f1fe9	Turkey	TUR	UEFA	f	2025-10-21 10:55:00.013812+02	2025-10-21 10:55:00.013812+02
+\.
+
+
+--
+-- Data for Name: users; Type: TABLE DATA; Schema: public; Owner: root
+--
+
+COPY public.users (id, email, password_hash, name, is_active, created_at, updated_at, last_login_at, email_verified) FROM stdin;
+\.
+
+
+--
+-- Name: group_standings group_standings_group_id_position_key; Type: CONSTRAINT; Schema: public; Owner: root
+--
+
+ALTER TABLE ONLY public.group_standings
+    ADD CONSTRAINT group_standings_group_id_position_key UNIQUE (group_id, "position");
+
+
+--
+-- Name: group_standings group_standings_group_id_team_id_key; Type: CONSTRAINT; Schema: public; Owner: root
+--
+
+ALTER TABLE ONLY public.group_standings
+    ADD CONSTRAINT group_standings_group_id_team_id_key UNIQUE (group_id, team_id);
+
+
+--
+-- Name: group_standings group_standings_pkey; Type: CONSTRAINT; Schema: public; Owner: root
+--
+
+ALTER TABLE ONLY public.group_standings
+    ADD CONSTRAINT group_standings_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: groups groups_name_key; Type: CONSTRAINT; Schema: public; Owner: root
+--
+
+ALTER TABLE ONLY public.groups
+    ADD CONSTRAINT groups_name_key UNIQUE (name);
+
+
+--
+-- Name: groups groups_pkey; Type: CONSTRAINT; Schema: public; Owner: root
+--
+
+ALTER TABLE ONLY public.groups
+    ADD CONSTRAINT groups_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: matches matches_match_number_key; Type: CONSTRAINT; Schema: public; Owner: root
+--
+
+ALTER TABLE ONLY public.matches
+    ADD CONSTRAINT matches_match_number_key UNIQUE (match_number);
+
+
+--
+-- Name: matches matches_pkey; Type: CONSTRAINT; Schema: public; Owner: root
+--
+
+ALTER TABLE ONLY public.matches
+    ADD CONSTRAINT matches_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: stadiums stadiums_code_key; Type: CONSTRAINT; Schema: public; Owner: root
+--
+
+ALTER TABLE ONLY public.stadiums
+    ADD CONSTRAINT stadiums_code_key UNIQUE (code);
+
+
+--
+-- Name: stadiums stadiums_pkey; Type: CONSTRAINT; Schema: public; Owner: root
+--
+
+ALTER TABLE ONLY public.stadiums
+    ADD CONSTRAINT stadiums_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: teams teams_fifa_code_key; Type: CONSTRAINT; Schema: public; Owner: root
+--
+
+ALTER TABLE ONLY public.teams
+    ADD CONSTRAINT teams_fifa_code_key UNIQUE (fifa_code);
+
+
+--
+-- Name: teams teams_pkey; Type: CONSTRAINT; Schema: public; Owner: root
+--
+
+ALTER TABLE ONLY public.teams
+    ADD CONSTRAINT teams_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: users users_email_key; Type: CONSTRAINT; Schema: public; Owner: root
+--
+
+ALTER TABLE ONLY public.users
+    ADD CONSTRAINT users_email_key UNIQUE (email);
+
+
+--
+-- Name: users users_pkey; Type: CONSTRAINT; Schema: public; Owner: root
+--
+
+ALTER TABLE ONLY public.users
+    ADD CONSTRAINT users_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: idx_group_standings_group; Type: INDEX; Schema: public; Owner: root
+--
+
+CREATE INDEX idx_group_standings_group ON public.group_standings USING btree (group_id);
+
+
+--
+-- Name: idx_group_standings_position; Type: INDEX; Schema: public; Owner: root
+--
+
+CREATE INDEX idx_group_standings_position ON public.group_standings USING btree (group_id, "position");
+
+
+--
+-- Name: idx_group_standings_team; Type: INDEX; Schema: public; Owner: root
+--
+
+CREATE INDEX idx_group_standings_team ON public.group_standings USING btree (team_id);
+
+
+--
+-- Name: idx_groups_name; Type: INDEX; Schema: public; Owner: root
+--
+
+CREATE INDEX idx_groups_name ON public.groups USING btree (name);
+
+
+--
+-- Name: idx_matches_away_team; Type: INDEX; Schema: public; Owner: root
+--
+
+CREATE INDEX idx_matches_away_team ON public.matches USING btree (away_team_id) WHERE (away_team_id IS NOT NULL);
+
+
+--
+-- Name: idx_matches_date; Type: INDEX; Schema: public; Owner: root
+--
+
+CREATE INDEX idx_matches_date ON public.matches USING btree (match_date);
+
+
+--
+-- Name: idx_matches_group; Type: INDEX; Schema: public; Owner: root
+--
+
+CREATE INDEX idx_matches_group ON public.matches USING btree (group_id) WHERE (group_id IS NOT NULL);
+
+
+--
+-- Name: idx_matches_home_team; Type: INDEX; Schema: public; Owner: root
+--
+
+CREATE INDEX idx_matches_home_team ON public.matches USING btree (home_team_id) WHERE (home_team_id IS NOT NULL);
+
+
+--
+-- Name: idx_matches_locked_at; Type: INDEX; Schema: public; Owner: root
+--
+
+CREATE INDEX idx_matches_locked_at ON public.matches USING btree (predictions_locked_at);
+
+
+--
+-- Name: idx_matches_phase; Type: INDEX; Schema: public; Owner: root
+--
+
+CREATE INDEX idx_matches_phase ON public.matches USING btree (phase);
+
+
+--
+-- Name: idx_matches_status; Type: INDEX; Schema: public; Owner: root
+--
+
+CREATE INDEX idx_matches_status ON public.matches USING btree (status);
+
+
+--
+-- Name: idx_stadiums_code; Type: INDEX; Schema: public; Owner: root
+--
+
+CREATE INDEX idx_stadiums_code ON public.stadiums USING btree (code);
+
+
+--
+-- Name: idx_stadiums_country; Type: INDEX; Schema: public; Owner: root
+--
+
+CREATE INDEX idx_stadiums_country ON public.stadiums USING btree (country);
+
+
+--
+-- Name: idx_teams_confederation; Type: INDEX; Schema: public; Owner: root
+--
+
+CREATE INDEX idx_teams_confederation ON public.teams USING btree (confederation);
+
+
+--
+-- Name: idx_teams_fifa_code; Type: INDEX; Schema: public; Owner: root
+--
+
+CREATE INDEX idx_teams_fifa_code ON public.teams USING btree (fifa_code);
+
+
+--
+-- Name: idx_users_created_at; Type: INDEX; Schema: public; Owner: root
+--
+
+CREATE INDEX idx_users_created_at ON public.users USING btree (created_at DESC);
+
+
+--
+-- Name: idx_users_email; Type: INDEX; Schema: public; Owner: root
+--
+
+CREATE INDEX idx_users_email ON public.users USING btree (email);
+
+
+--
+-- Name: idx_users_email_verified; Type: INDEX; Schema: public; Owner: root
+--
+
+CREATE INDEX idx_users_email_verified ON public.users USING btree (email_verified);
+
+
+--
+-- Name: idx_users_is_active; Type: INDEX; Schema: public; Owner: root
+--
+
+CREATE INDEX idx_users_is_active ON public.users USING btree (is_active);
+
+
+--
+-- Name: group_standings calculate_group_standings_goal_difference; Type: TRIGGER; Schema: public; Owner: root
+--
+
+CREATE TRIGGER calculate_group_standings_goal_difference BEFORE INSERT OR UPDATE OF goals_for, goals_against ON public.group_standings FOR EACH ROW EXECUTE FUNCTION public.calculate_goal_difference();
+
+
+--
+-- Name: group_standings update_group_standings_updated_at; Type: TRIGGER; Schema: public; Owner: root
+--
+
+CREATE TRIGGER update_group_standings_updated_at BEFORE UPDATE ON public.group_standings FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+
+--
+-- Name: matches update_matches_updated_at; Type: TRIGGER; Schema: public; Owner: root
+--
+
+CREATE TRIGGER update_matches_updated_at BEFORE UPDATE ON public.matches FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+
+--
+-- Name: stadiums update_stadiums_updated_at; Type: TRIGGER; Schema: public; Owner: root
+--
+
+CREATE TRIGGER update_stadiums_updated_at BEFORE UPDATE ON public.stadiums FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+
+--
+-- Name: teams update_teams_updated_at; Type: TRIGGER; Schema: public; Owner: root
+--
+
+CREATE TRIGGER update_teams_updated_at BEFORE UPDATE ON public.teams FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+
+--
+-- Name: users update_users_updated_at; Type: TRIGGER; Schema: public; Owner: root
+--
+
+CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON public.users FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+
+--
+-- Name: group_standings group_standings_group_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: root
+--
+
+ALTER TABLE ONLY public.group_standings
+    ADD CONSTRAINT group_standings_group_id_fkey FOREIGN KEY (group_id) REFERENCES public.groups(id) ON DELETE CASCADE;
+
+
+--
+-- Name: group_standings group_standings_team_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: root
+--
+
+ALTER TABLE ONLY public.group_standings
+    ADD CONSTRAINT group_standings_team_id_fkey FOREIGN KEY (team_id) REFERENCES public.teams(id) ON DELETE CASCADE;
+
+
+--
+-- Name: matches matches_away_team_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: root
+--
+
+ALTER TABLE ONLY public.matches
+    ADD CONSTRAINT matches_away_team_id_fkey FOREIGN KEY (away_team_id) REFERENCES public.teams(id) ON DELETE SET NULL;
+
+
+--
+-- Name: matches matches_group_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: root
+--
+
+ALTER TABLE ONLY public.matches
+    ADD CONSTRAINT matches_group_id_fkey FOREIGN KEY (group_id) REFERENCES public.groups(id);
+
+
+--
+-- Name: matches matches_home_team_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: root
+--
+
+ALTER TABLE ONLY public.matches
+    ADD CONSTRAINT matches_home_team_id_fkey FOREIGN KEY (home_team_id) REFERENCES public.teams(id) ON DELETE SET NULL;
+
+
+--
+-- Name: matches matches_stadium_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: root
+--
+
+ALTER TABLE ONLY public.matches
+    ADD CONSTRAINT matches_stadium_id_fkey FOREIGN KEY (stadium_id) REFERENCES public.stadiums(id);
+
+
+--
+-- PostgreSQL database dump complete
+--
+
+\unrestrict ZWQ37p4UUxEXbGnfo6JwpF7HUmLZR4grIqlC9VxDPetWr0iALEKRXLPiHP6zdiP
+
