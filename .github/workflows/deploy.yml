@@ -1,0 +1,112 @@
+name: Deploy to Hetzner
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:  # Allow manual triggers
+
+env:
+  NODE_ENV: production
+
+jobs:
+  deploy:
+    name: Deploy Backend to Production
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup SSH Key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Add server to known hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Deploy to Hetzner Server
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+        run: |
+          ssh $SERVER_USER@$SERVER_HOST << 'ENDSSH'
+            set -e
+
+            echo "🚀 Starting deployment..."
+
+            # Run deployment script
+            sudo bash /opt/porraza-backend/deploy.sh
+
+            echo "✅ Deployment completed!"
+          ENDSSH
+
+      - name: Verify Deployment
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+        run: |
+          ssh $SERVER_USER@$SERVER_HOST << 'ENDSSH'
+            set -e
+
+            echo "🔍 Verifying deployment..."
+
+            cd /opt/porraza-backend
+
+            # Check container status
+            echo "Container status:"
+            docker-compose ps
+
+            # Check backend health
+            echo "Checking backend health..."
+            for i in {1..30}; do
+              if docker-compose ps | grep -q "porraza_backend.*Up"; then
+                echo "✅ Backend is running!"
+                break
+              fi
+              echo "Waiting for backend... ($i/30)"
+              sleep 2
+            done
+
+            # Show recent logs
+            echo "Recent logs:"
+            docker-compose logs --tail=50 backend
+          ENDSSH
+
+      - name: Deployment Status
+        if: success()
+        run: |
+          echo "🎉 Deployment to production was successful!"
+          echo "Backend is now running on the Hetzner server"
+
+      - name: Deployment Failed
+        if: failure()
+        run: |
+          echo "❌ Deployment failed!"
+          echo "Check the logs above for details"
+          exit 1
+
+  notify:
+    name: Notify Deployment Status
+    runs-on: ubuntu-latest
+    needs: deploy
+    if: always()
+
+    steps:
+      - name: Deployment Success Notification
+        if: needs.deploy.result == 'success'
+        run: |
+          echo "✅ Deployment succeeded for commit: ${{ github.sha }}"
+          echo "Deployed by: ${{ github.actor }}"
+          echo "Branch: ${{ github.ref_name }}"
+
+      - name: Deployment Failure Notification
+        if: needs.deploy.result == 'failure'
+        run: |
+          echo "❌ Deployment failed for commit: ${{ github.sha }}"
+          echo "Triggered by: ${{ github.actor }}"
+          echo "Branch: ${{ github.ref_name }}"
