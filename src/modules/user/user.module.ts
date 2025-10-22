@@ -94,7 +94,8 @@ import { UserRepository } from '@infrastructure/persistence/repositories/user.re
     GetUserByEmailUseCase,
     GetUserByIdUseCase,
     // Exportar el repositorio si otros módulos necesitan acceso directo
-    // 'IUserRepository',
+    // IMPORTANTE: Exportado para que AuthModule pueda usarlo en LoginUseCase y JwtStrategy
+    'IUserRepository',
   ],
 })
 export class UserModule {}

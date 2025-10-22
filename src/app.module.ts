@@ -6,6 +6,7 @@ import { StadiumModule } from '@modules/stadium/stadium.module';
 import { TeamModule } from '@modules/team/team.module';
 import { MatchModule } from '@modules/match/match.module';
 import { UserModule } from '@modules/user/user.module';
+import { AuthModule } from '@modules/auth/auth.module';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { UserModule } from '@modules/user/user.module';
     TeamModule, // Módulo de funcionalidad de equipos
     MatchModule, // Módulo de funcionalidad de partidos
     UserModule, // Módulo de funcionalidad de usuarios
+    AuthModule, // Módulo de autenticación JWT
   ],
   controllers: [AppController],
   providers: [AppService],

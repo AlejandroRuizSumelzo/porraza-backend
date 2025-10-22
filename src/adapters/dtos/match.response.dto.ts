@@ -1,5 +1,9 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Match, MatchPhase, MatchStatus } from '../../domain/entities/match.entity';
+import {
+  Match,
+  MatchPhase,
+  MatchStatus,
+} from '../../domain/entities/match.entity';
 
 export class MatchResponseDto {
   @ApiProperty({
@@ -17,28 +21,32 @@ export class MatchResponseDto {
   matchNumber: number;
 
   @ApiPropertyOptional({
-    description: 'UUID of the home team (null for knockout matches with TBD teams)',
+    description:
+      'UUID of the home team (null for knockout matches with TBD teams)',
     example: 'd8357f2b-e7be-47ad-8e06-997d09017409',
     nullable: true,
   })
   homeTeamId: string | null;
 
   @ApiPropertyOptional({
-    description: 'UUID of the away team (null for knockout matches with TBD teams)',
+    description:
+      'UUID of the away team (null for knockout matches with TBD teams)',
     example: '5b071bac-ca7b-4d43-ad89-aec49b7a9125',
     nullable: true,
   })
   awayTeamId: string | null;
 
   @ApiPropertyOptional({
-    description: 'Placeholder describing the home team for knockout matches (e.g., "Group A winners")',
+    description:
+      'Placeholder describing the home team for knockout matches (e.g., "Group A winners")',
     example: 'Group A winners',
     nullable: true,
   })
   homeTeamPlaceholder: string | null;
 
   @ApiPropertyOptional({
-    description: 'Placeholder describing the away team for knockout matches (e.g., "Group B runners-up")',
+    description:
+      'Placeholder describing the away team for knockout matches (e.g., "Group B runners-up")',
     example: 'Group B runners-up',
     nullable: true,
   })
@@ -51,7 +59,8 @@ export class MatchResponseDto {
   stadiumId: string;
 
   @ApiPropertyOptional({
-    description: 'UUID of the group (only for group stage matches, null for knockout)',
+    description:
+      'UUID of the group (only for group stage matches, null for knockout)',
     example: '3cbeb5b0-65b6-4c5c-b18b-7d495e8d8ada',
     nullable: true,
   })
@@ -77,28 +86,32 @@ export class MatchResponseDto {
   matchTime: string;
 
   @ApiPropertyOptional({
-    description: 'Home team score in regular time (null if match not played yet)',
+    description:
+      'Home team score in regular time (null if match not played yet)',
     example: 2,
     nullable: true,
   })
   homeScore: number | null;
 
   @ApiPropertyOptional({
-    description: 'Away team score in regular time (null if match not played yet)',
+    description:
+      'Away team score in regular time (null if match not played yet)',
     example: 1,
     nullable: true,
   })
   awayScore: number | null;
 
   @ApiPropertyOptional({
-    description: 'Home team cumulative score after extra time (knockout matches only)',
+    description:
+      'Home team cumulative score after extra time (knockout matches only)',
     example: 3,
     nullable: true,
   })
   homeScoreEt: number | null;
 
   @ApiPropertyOptional({
-    description: 'Away team cumulative score after extra time (knockout matches only)',
+    description:
+      'Away team cumulative score after extra time (knockout matches only)',
     example: 2,
     nullable: true,
   })
@@ -132,7 +145,8 @@ export class MatchResponseDto {
   predictionsLockedAt: Date;
 
   @ApiPropertyOptional({
-    description: 'Array of match numbers that determine the teams for this match (knockout only)',
+    description:
+      'Array of match numbers that determine the teams for this match (knockout only)',
     example: [53, 54, 51, 52],
     nullable: true,
     type: [Number],

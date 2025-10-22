@@ -43,9 +43,7 @@ export class GetMatchCalendarUseCase {
     const matchRows = await this.matchRepository.findCalendarWithDetails();
 
     // 2. Transformar filas de BD a DTOs
-    const matchItems = matchRows.map((row) =>
-      this.mapRowToCalendarItem(row),
-    );
+    const matchItems = matchRows.map((row) => this.mapRowToCalendarItem(row));
 
     // 3. Agrupar partidos por fase
     const groupedByPhase = this.groupMatchesByPhase(matchItems);

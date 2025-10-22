@@ -114,11 +114,10 @@ export class User {
   /**
    * Verifica si el usuario puede hacer login
    * Combina todas las reglas de negocio para login
-   * NOTA: Actualmente solo verifica isActive. En el futuro, considerar
-   * requerir email verificado para ciertos flujos: this.isActive && this.isEmailVerified
+   * IMPORTANTE: Usuario DEBE tener email verificado Y estar activo
    */
   canLogin(): boolean {
-    return this.isActive;
+    return this.isActive && this.isEmailVerified;
   }
 
   /**
