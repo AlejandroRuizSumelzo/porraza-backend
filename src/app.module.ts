@@ -5,6 +5,7 @@ import { DatabaseModule } from '@infrastructure/persistence/database.module';
 import { StadiumModule } from '@modules/stadium/stadium.module';
 import { TeamModule } from '@modules/team/team.module';
 import { MatchModule } from '@modules/match/match.module';
+import { UserModule } from '@modules/user/user.module';
 
 @Module({
   imports: [
@@ -12,6 +13,7 @@ import { MatchModule } from '@modules/match/match.module';
     StadiumModule, // Módulo de funcionalidad de estadios
     TeamModule, // Módulo de funcionalidad de equipos
     MatchModule, // Módulo de funcionalidad de partidos
+    UserModule, // Módulo de funcionalidad de usuarios
   ],
   controllers: [AppController],
   providers: [AppService],
