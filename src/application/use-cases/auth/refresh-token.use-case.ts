@@ -62,16 +62,18 @@ export class RefreshTokenUseCase {
   /**
    * Ejecuta el caso de uso de refresh token
    *
-   * @param refreshTokenDto - DTO con el refresh token
+   * @param refreshTokenDto - DTO con el refresh token (o objeto con refreshToken como string)
    * @returns Nuevo access token + tiempo de expiración
    * @throws UnauthorizedException si el refresh token es inválido o ha expirado
    * @throws ForbiddenException si el usuario está inactivo
    */
-  async execute(refreshTokenDto: RefreshTokenDto): Promise<RefreshTokenResult> {
+  async execute(
+    refreshTokenDto: RefreshTokenDto | { refreshToken: string },
+  ): Promise<RefreshTokenResult> {
     // 1. Verificar y decodificar el refresh token
     // Esto también valida que sea de tipo 'refresh'
     const payload = await this.jwtRepository.verifyRefreshToken(
-      refreshTokenDto.refreshToken,
+      refreshTokenDto.refreshToken!,
     );
 
     // 2. Buscar el usuario por ID (del payload)

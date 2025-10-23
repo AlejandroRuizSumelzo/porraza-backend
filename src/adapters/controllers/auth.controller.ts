@@ -7,6 +7,8 @@ import {
   HttpStatus,
   UseGuards,
   Req,
+  Res,
+  BadRequestException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -29,7 +31,8 @@ import { RegisterUseCase } from '@application/use-cases/auth/register.use-case';
 import { VerifyEmailUseCase } from '@application/use-cases/auth/verify-email.use-case';
 import { ResendVerificationUseCase } from '@application/use-cases/auth/resend-verification.use-case';
 import { JwtAuthGuard } from '@adapters/guards/jwt-auth.guard';
-import type { Request } from 'express';
+import { AuthCookiesHelper } from '@infrastructure/auth/auth-cookies.helper';
+import type { Request, Response } from 'express';
 import type { User } from '@domain/entities/user.entity';
 
 /**
@@ -146,9 +149,20 @@ export class AuthController {
     status: 500,
     description: 'Internal Server Error',
   })
-  async login(@Body() loginDto: LoginDto): Promise<LoginResponseDto> {
+  async login(
+    @Body() loginDto: LoginDto,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<LoginResponseDto> {
     const result = await this.loginUseCase.execute(loginDto);
 
+    // Establecer cookies HTTP-only con los tokens
+    AuthCookiesHelper.setAuthCookies(
+      res,
+      result.tokens.accessToken,
+      result.tokens.refreshToken,
+    );
+
+    // Mantener también en el body para compatibilidad
     return LoginResponseDto.create(
       result.tokens.accessToken,
       result.tokens.refreshToken,
@@ -230,13 +244,63 @@ export class AuthController {
     status: 500,
     description: 'Internal Server Error',
   })
-  async refresh(@Body() refreshTokenDto: RefreshTokenDto) {
-    const result = await this.refreshTokenUseCase.execute(refreshTokenDto);
+  async refresh(
+    @Body() refreshTokenDto: RefreshTokenDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    // Obtener refresh token desde cookies (prioridad) o body (fallback)
+    const refreshToken = AuthCookiesHelper.getRefreshToken(
+      req.cookies,
+      refreshTokenDto.refreshToken,
+    );
 
+    if (!refreshToken) {
+      throw new BadRequestException(
+        'Refresh token is required (via cookie or request body)',
+      );
+    }
+
+    // Ejecutar use case con el token obtenido
+    const result = await this.refreshTokenUseCase.execute({ refreshToken });
+
+    // Establecer cookie con el nuevo access token
+    AuthCookiesHelper.setAccessTokenCookie(res, result.accessToken);
+
+    // Mantener también en el body para compatibilidad
     return {
       accessToken: result.accessToken,
       expiresIn: result.expiresIn,
     };
+  }
+
+  /**
+   * POST /auth/logout
+   * Cerrar sesión y limpiar cookies de autenticación
+   */
+  @Post('logout')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Logout user',
+    description:
+      'Clear authentication cookies. This does not invalidate the JWT tokens (they remain valid until expiration), but removes them from the browser.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Logout successful - cookies cleared',
+    schema: {
+      example: {
+        message: 'Logout successful',
+      },
+    },
+  })
+  async logout(
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<{ message: string }> {
+    // Limpiar cookies HTTP-only
+    AuthCookiesHelper.clearAuthCookies(res);
+
+    return { message: 'Logout successful' };
   }
 
   /**

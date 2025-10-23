@@ -1,9 +1,11 @@
 import { Injectable, UnauthorizedException, Inject } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
+import type { Request } from 'express';
 import type { JwtPayload } from '@domain/repositories/jwt.repository.interface';
 import type { IUserRepository } from '@domain/repositories/user.repository.interface';
 import { getJwtConfig } from '../auth.config';
+import { COOKIE_NAMES } from '../cookie.config';
 
 /**
  * JwtStrategy (Infrastructure Layer)
@@ -13,8 +15,8 @@ import { getJwtConfig } from '../auth.config';
  * con @UseGuards(JwtAuthGuard).
  *
  * Flujo de ejecución:
- * 1. Cliente envía request con header: Authorization: Bearer <token>
- * 2. ExtractJwt.fromAuthHeaderAsBearerToken() extrae el token
+ * 1. Cliente envía request con header Authorization: Bearer <token> O cookie accessToken
+ * 2. ExtractJwt extrae el token (prioridad: header, luego cookie)
  * 3. Passport verifica la firma y expiración del token
  * 4. Si el token es válido, se llama al método validate() con el payload
  * 5. validate() busca el usuario en BD y verifica que esté activo
@@ -22,7 +24,7 @@ import { getJwtConfig } from '../auth.config';
  * 7. Si algo falla, se retorna 401 Unauthorized
  *
  * Configuración:
- * - jwtFromRequest: Extrae token del header Authorization
+ * - jwtFromRequest: Extrae token del header Authorization O cookie (con fallback)
  * - ignoreExpiration: false (rechazar tokens expirados)
  * - secretOrKey: Clave secreta para verificar firma
  *
@@ -30,6 +32,7 @@ import { getJwtConfig } from '../auth.config';
  * - Solo valida tokens de tipo 'access' (no 'refresh')
  * - Verifica que el usuario exista y esté activo en cada request
  * - Si el usuario fue eliminado/desactivado, el token se rechaza aunque sea válido
+ * - Soporta tokens desde header (clientes API) y cookies (navegadores)
  *
  * Request User:
  * - Después de validate(), request.user contiene el objeto User completo
@@ -44,8 +47,14 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     const jwtConfig = getJwtConfig();
 
     super({
-      // Extraer token del header Authorization: Bearer <token>
-      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      // Extractor personalizado que busca en header Y cookies (con fallback)
+      jwtFromRequest: ExtractJwt.fromExtractors([
+        ExtractJwt.fromAuthHeaderAsBearerToken(), // Prioridad 1: Header Authorization
+        (req: Request) => {
+          // Prioridad 2: Cookie accessToken
+          return req?.cookies?.[COOKIE_NAMES.ACCESS_TOKEN] ?? null;
+        },
+      ]),
 
       // NO ignorar expiración (rechazar tokens expirados)
       ignoreExpiration: false,

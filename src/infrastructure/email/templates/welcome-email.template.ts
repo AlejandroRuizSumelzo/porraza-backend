@@ -10,88 +10,204 @@
 export function getWelcomeEmailTemplate(name: string): string {
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
 
+  const currentYear = new Date().getFullYear();
+
   return `
     <!DOCTYPE html>
     <html lang="es">
       <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>¡Bienvenido a Porraza!</title>
+        <title>Cuenta verificada · Porraza</title>
+        <style>
+          :root {
+            color-scheme: light only;
+          }
+          body {
+            margin: 0;
+            padding: 0;
+            background-color: #f3f4f8;
+            font-family: 'Poppins', 'Segoe UI', sans-serif;
+            color: #1f2937;
+          }
+          table {
+            border-collapse: collapse;
+          }
+          a {
+            color: #2a398d;
+          }
+          .container {
+            width: 100%;
+            padding: 24px 0;
+          }
+          .email-card {
+            width: 600px;
+            max-width: 600px;
+            background-color: #ffffff;
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 16px 40px rgba(17, 24, 39, 0.12);
+          }
+          .header {
+            background: linear-gradient(135deg, #2a398d 0%, #3cac3b 100%);
+            padding: 48px 40px 40px;
+            text-align: left;
+          }
+          .header-title {
+            margin: 0;
+            font-size: 28px;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            color: #ffffff;
+          }
+          .header-subtitle {
+            margin: 12px 0 0;
+            font-size: 16px;
+            font-weight: 400;
+            color: rgba(255, 255, 255, 0.92);
+          }
+          .content {
+            padding: 40px;
+          }
+          .content h2 {
+            margin: 0 0 16px;
+            font-size: 24px;
+            font-weight: 600;
+            color: #1f2937;
+          }
+          .content p {
+            margin: 0 0 20px;
+            font-size: 16px;
+            line-height: 1.65;
+            color: #4b5563;
+          }
+          .highlights {
+            background-color: #f5f7fb;
+            border-radius: 12px;
+            padding: 24px 28px;
+            border: 1px solid rgba(42, 57, 141, 0.08);
+            margin: 32px 0;
+          }
+          .highlights h3 {
+            margin: 0 0 16px;
+            font-size: 18px;
+            font-weight: 600;
+            color: #1f2937;
+          }
+          .highlights ul {
+            margin: 0;
+            padding-left: 20px;
+            color: #4b5563;
+            line-height: 1.75;
+            font-size: 15px;
+          }
+          .cta-wrapper {
+            text-align: center;
+            padding: 24px 0 8px;
+          }
+          .cta-button {
+            display: inline-block;
+            background-color: #2a398d;
+            color: #ffffff !important;
+            text-decoration: none;
+            padding: 16px 36px;
+            border-radius: 999px;
+            font-size: 16px;
+            font-weight: 600;
+            letter-spacing: 0.01em;
+          }
+          .closing {
+            margin: 32px 0 0;
+            font-size: 16px;
+            text-align: center;
+            color: #1f2937;
+          }
+          .footer-card {
+            margin-top: 16px;
+            padding: 32px 40px;
+            background-color: #f9fafb;
+            text-align: center;
+            border-top: 1px solid #e5e7eb;
+          }
+          .footer-card p {
+            margin: 0 0 12px;
+            font-size: 13px;
+            color: #6b7280;
+          }
+          .footer-links {
+            margin-top: 20px;
+            font-size: 13px;
+            color: #9ca3af;
+          }
+          .footer-links a {
+            color: #2a398d;
+            text-decoration: none;
+            margin: 0 8px;
+          }
+          @media only screen and (max-width: 640px) {
+            .email-card {
+              width: 100% !important;
+              border-radius: 0;
+            }
+            .header,
+            .content,
+            .footer-card {
+              padding-left: 24px !important;
+              padding-right: 24px !important;
+            }
+          }
+        </style>
       </head>
-      <body style="margin: 0; padding: 0; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #f4f4f4;">
-        <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f4f4f4; padding: 20px 0;">
+      <body>
+        <table role="presentation" width="100%" class="container" cellpadding="0" cellspacing="0" align="center">
           <tr>
             <td align="center">
-              <table width="600" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
-
-                <!-- Header -->
+              <table role="presentation" class="email-card" cellpadding="0" cellspacing="0">
                 <tr>
-                  <td style="background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%); padding: 40px 30px; text-align: center;">
-                    <h1 style="color: #ffffff; margin: 0; font-size: 32px;">
-                      🎉
-                    </h1>
-                    <h2 style="color: #ffffff; margin: 10px 0 0 0; font-size: 24px; font-weight: bold;">
-                      ¡Cuenta Verificada!
-                    </h2>
+                  <td class="header">
+                    <p class="header-title">Porraza</p>
+                    <p class="header-subtitle">Tu cuenta ya está lista para competir en el Mundial 2026</p>
                   </td>
                 </tr>
-
-                <!-- Content -->
                 <tr>
-                  <td style="padding: 40px 30px;">
-                    <h2 style="color: #333333; margin: 0 0 20px 0; font-size: 24px;">
-                      ¡Hola, ${name}!
-                    </h2>
-
-                    <p style="color: #666666; line-height: 1.6; margin: 0 0 20px 0; font-size: 16px;">
-                      Tu cuenta ha sido <strong>verificada exitosamente</strong>. Ya eres parte de la comunidad de Porraza para el Mundial 2026.
+                  <td class="content">
+                    <h2>Hola ${name},</h2>
+                    <p>
+                      ¡Enhorabuena! Tu email se ha verificado correctamente y ya formas parte
+                      de la comunidad Porraza. A partir de ahora puedes crear ligas privadas,
+                      invitar a tu equipo y seguir la clasificación en tiempo real.
                     </p>
-
-                    <div style="background-color: #f9f9f9; border-left: 4px solid #4CAF50; padding: 20px; margin: 30px 0;">
-                      <h3 style="color: #333333; margin: 0 0 15px 0; font-size: 18px;">
-                        ¿Qué puedes hacer ahora?
-                      </h3>
-                      <ul style="color: #666666; margin: 0; padding-left: 20px; line-height: 1.8;">
-                        <li>Hacer predicciones de los partidos del Mundial 2026</li>
-                        <li>Unirte a ligas públicas o crear tu propia liga privada</li>
-                        <li>Competir con amigos en el ranking global</li>
-                        <li>Predecir al Pichichi y MVP del torneo</li>
+                    <div class="highlights">
+                      <h3>¿Qué puedes hacer ahora mismo?</h3>
+                      <ul>
+                        <li>Iniciar sesión y configurar tu primera liga privada.</li>
+                        <li>Invitar a tus compañeros mediante un enlace único.</li>
+                        <li>Seguir los partidos, estadísticas y rankings en tiempo real.</li>
+                        <li>Personalizar reglas, predicciones especiales y premios.</li>
                       </ul>
                     </div>
-
-                    <!-- Button -->
-                    <table width="100%" cellpadding="0" cellspacing="0">
-                      <tr>
-                        <td align="center" style="padding: 20px 0;">
-                          <a href="${frontendUrl}/login"
-                             style="display: inline-block; background-color: #4CAF50; color: #ffffff;
-                                    padding: 16px 40px; text-decoration: none; border-radius: 6px;
-                                    font-size: 16px; font-weight: bold; box-shadow: 0 4px 6px rgba(76, 175, 80, 0.3);">
-                            Iniciar Sesión
-                          </a>
-                        </td>
-                      </tr>
-                    </table>
-
-                    <p style="color: #666666; line-height: 1.6; margin: 30px 0 0 0; font-size: 16px; text-align: center;">
-                      ¡Que gane el mejor predictor! ⚽🏆
+                    <div class="cta-wrapper">
+                      <a href="${frontendUrl}/login" class="cta-button">Iniciar sesión</a>
+                    </div>
+                    <p class="closing">
+                      Nos vemos en la clasificación. ¡Que gane la mejor porra!
                     </p>
                   </td>
                 </tr>
-
-                <!-- Footer -->
                 <tr>
-                  <td style="background-color: #f9f9f9; padding: 30px; text-align: center;
-                             border-top: 1px solid #eeeeee;">
-                    <p style="color: #999999; margin: 0 0 10px 0; font-size: 13px;">
-                      ¿Necesitas ayuda? Contáctanos respondiendo a este email.
+                  <td class="footer-card">
+                    <p>¿Necesitas ayuda? Responde a este email y te atenderemos lo antes posible.</p>
+                    <p>Porraza · porraza.com · contacto@porraza.com · +34 667 80 99 50</p>
+                    <p class="footer-links">
+                      <a href="https://porraza.com/legal-advise">Aviso legal</a> ·
+                      <a href="https://porraza.com/privacy-policy">Política de privacidad</a> ·
+                      <a href="https://porraza.com/cookies-policy">Política de cookies</a>
                     </p>
-                    <p style="color: #cccccc; margin: 20px 0 0 0; font-size: 12px;">
-                      © ${new Date().getFullYear()} Porraza - Todos los derechos reservados
+                    <p style="margin-top: 24px; font-size: 12px; color: #9ca3af;">
+                      © ${currentYear} Porraza. Todos los derechos reservados. 50011 Miralbueno, Zaragoza.
                     </p>
                   </td>
                 </tr>
-
               </table>
             </td>
           </tr>

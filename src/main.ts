@@ -2,9 +2,21 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import cookieParser from 'cookie-parser';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+
+  // Enable cookie parser for handling HTTP-only cookies
+  app.use(cookieParser());
+
+  // Enable CORS for frontend development
+  app.enableCors({
+    origin: ['http://localhost:3000', 'http://localhost:3001'], // Frontend URLs
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    credentials: true,
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  });
 
   // Global validation pipe for DTOs
   app.useGlobalPipes(
