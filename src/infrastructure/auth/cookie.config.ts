@@ -6,12 +6,13 @@
  * Opciones de seguridad:
  * - httpOnly: true - Previene acceso desde JavaScript (protección XSS)
  * - secure: true en producción - Solo envía cookies por HTTPS
- * - sameSite: 'lax' - Protección básica contra CSRF
+ * - sameSite: 'none' en producción - Permite cookies cross-site (requiere secure)
+ * - domain: en producción permite compartir entre subdominios
  * - path: '/' - Cookie disponible en todas las rutas
  *
  * IMPORTANTE:
  * - En producción, secure debe ser true (requiere HTTPS)
- * - sameSite 'lax' permite navegación desde externos pero bloquea POST cross-site
+ * - sameSite 'none' + domain permite API en api.domain.com y frontend en domain.com
  * - maxAge se especifica en milisegundos
  */
 
@@ -24,6 +25,8 @@ export interface CookieConfig {
   sameSite: 'strict' | 'lax' | 'none';
   /** Cookie disponible en todas las rutas */
   path: string;
+  /** Dominio para compartir cookies entre subdominios (opcional) */
+  domain?: string;
   /** Duración del access token en milisegundos */
   accessTokenMaxAge: number;
   /** Duración del refresh token en milisegundos */
@@ -43,12 +46,14 @@ export const COOKIE_NAMES = {
  */
 export function getCookieConfig(): CookieConfig {
   const isProduction = process.env.NODE_ENV === 'production';
+  const cookieDomain = process.env.COOKIE_DOMAIN; // ej: '.porraza.com'
 
   return {
     httpOnly: true, // Siempre true para seguridad
     secure: isProduction, // Solo HTTPS en producción
-    sameSite: 'lax', // Protección CSRF moderada
+    sameSite: isProduction ? 'none' : 'lax', // 'none' en prod para cross-site
     path: '/', // Todas las rutas
+    domain: cookieDomain, // Compartir entre subdominios en prod
     accessTokenMaxAge: 15 * 60 * 1000, // 15 minutos en milisegundos
     refreshTokenMaxAge: 7 * 24 * 60 * 60 * 1000, // 7 días en milisegundos
   };

@@ -39,22 +39,34 @@ export class AuthCookiesHelper {
     refreshToken: string,
   ): void {
     // Cookie para access token (15 minutos)
-    res.cookie(COOKIE_NAMES.ACCESS_TOKEN, accessToken, {
+    const accessCookieOptions: any = {
       httpOnly: this.config.httpOnly,
       secure: this.config.secure,
       sameSite: this.config.sameSite,
       path: this.config.path,
       maxAge: this.config.accessTokenMaxAge,
-    });
+    };
+
+    if (this.config.domain) {
+      accessCookieOptions.domain = this.config.domain;
+    }
+
+    res.cookie(COOKIE_NAMES.ACCESS_TOKEN, accessToken, accessCookieOptions);
 
     // Cookie para refresh token (7 días)
-    res.cookie(COOKIE_NAMES.REFRESH_TOKEN, refreshToken, {
+    const refreshCookieOptions: any = {
       httpOnly: this.config.httpOnly,
       secure: this.config.secure,
       sameSite: this.config.sameSite,
       path: this.config.path,
       maxAge: this.config.refreshTokenMaxAge,
-    });
+    };
+
+    if (this.config.domain) {
+      refreshCookieOptions.domain = this.config.domain;
+    }
+
+    res.cookie(COOKIE_NAMES.REFRESH_TOKEN, refreshToken, refreshCookieOptions);
   }
 
   /**
@@ -65,13 +77,19 @@ export class AuthCookiesHelper {
    * @param accessToken - JWT access token (15 min)
    */
   static setAccessTokenCookie(res: Response, accessToken: string): void {
-    res.cookie(COOKIE_NAMES.ACCESS_TOKEN, accessToken, {
+    const cookieOptions: any = {
       httpOnly: this.config.httpOnly,
       secure: this.config.secure,
       sameSite: this.config.sameSite,
       path: this.config.path,
       maxAge: this.config.accessTokenMaxAge,
-    });
+    };
+
+    if (this.config.domain) {
+      cookieOptions.domain = this.config.domain;
+    }
+
+    res.cookie(COOKIE_NAMES.ACCESS_TOKEN, accessToken, cookieOptions);
   }
 
   /**
@@ -81,19 +99,19 @@ export class AuthCookiesHelper {
    * @param res - Objeto Response de Express
    */
   static clearAuthCookies(res: Response): void {
-    res.clearCookie(COOKIE_NAMES.ACCESS_TOKEN, {
+    const cookieOptions: any = {
       httpOnly: this.config.httpOnly,
       secure: this.config.secure,
       sameSite: this.config.sameSite,
       path: this.config.path,
-    });
+    };
 
-    res.clearCookie(COOKIE_NAMES.REFRESH_TOKEN, {
-      httpOnly: this.config.httpOnly,
-      secure: this.config.secure,
-      sameSite: this.config.sameSite,
-      path: this.config.path,
-    });
+    if (this.config.domain) {
+      cookieOptions.domain = this.config.domain;
+    }
+
+    res.clearCookie(COOKIE_NAMES.ACCESS_TOKEN, cookieOptions);
+    res.clearCookie(COOKIE_NAMES.REFRESH_TOKEN, cookieOptions);
   }
 
   /**
