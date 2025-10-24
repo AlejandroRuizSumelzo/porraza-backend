@@ -17,7 +17,11 @@ services:
     networks:
       - porraza_network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-root} -d ${DB_NAME:-porraza_db}"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${DB_USER:-root} -d ${DB_NAME:-porraza_db}",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -42,6 +46,10 @@ services:
       JWT_REFRESH_EXPIRATION: ${JWT_REFRESH_EXPIRATION:-7d}
       RESEND_API_KEY: ${RESEND_API_KEY}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+      STRIPE_PRICE_ID: ${STRIPE_PRICE_ID}
     ports:
       - "${PORT:-3001}:3001"
     depends_on:
@@ -50,7 +58,11 @@ services:
     networks:
       - porraza_network
     healthcheck:
-      test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:3001', (res) => { process.exit(res.statusCode === 200 ? 0 : 1); });\""]
+      test:
+        [
+          "CMD-SHELL",
+          'node -e "require(''http'').get(''http://localhost:3001'', (res) => { process.exit(res.statusCode === 200 ? 0 : 1); });"',
+        ]
       interval: 30s
       timeout: 10s
       retries: 3
