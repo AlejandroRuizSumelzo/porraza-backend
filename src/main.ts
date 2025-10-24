@@ -14,9 +14,17 @@ async function bootstrap() {
   // Enable cookie parser for handling HTTP-only cookies
   app.use(cookieParser());
 
-  // Enable CORS for frontend development
+  const allowedOrigins =
+    process.env.ALLOWED_ORIGINS?.split(',')
+      .map((origin) => origin.trim())
+      .filter(Boolean) ?? [];
+
+  // Enable CORS using configured origins (defaults support local dev)
   app.enableCors({
-    origin: ['http://localhost:3000', 'http://localhost:3001'], // Frontend URLs
+    origin:
+      allowedOrigins.length > 0
+        ? allowedOrigins
+        : ['http://localhost:3000', 'http://localhost:3001'],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     credentials: true,
     allowedHeaders: ['Content-Type', 'Authorization'],
