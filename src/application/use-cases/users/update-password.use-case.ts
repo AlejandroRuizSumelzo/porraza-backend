@@ -1,74 +1,106 @@
-import { Injectable, Inject, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  Inject,
+  NotFoundException,
+  UnauthorizedException,
+  BadRequestException,
+} from '@nestjs/common';
+import * as bcrypt from 'bcrypt';
 import type { IUserRepository } from '@domain/repositories/user.repository.interface';
-import type { User } from '@domain/entities/user.entity';
-import type { UpdatePasswordDto } from '@adapters/dtos/user/update-password.dto';
+import type { IEmailRepository } from '@domain/repositories/email.repository.interface';
 
 /**
  * UpdatePasswordUseCase (Application Layer)
  *
- * Caso de uso para actualizar la contraseña de un usuario.
+ * Caso de uso para actualizar la contraseña de un usuario autenticado.
  *
- * Responsabilidades:
+ * Flujo:
  * 1. Verificar que el usuario existe
- * 2. Delegar actualización de contraseña al repositorio (que hashea)
- * 3. Retornar usuario actualizado
+ * 2. Verificar la contraseña actual (seguridad)
+ * 3. Validar que la nueva contraseña sea diferente
+ * 4. Actualizar contraseña (el repositorio hashea con bcrypt)
+ * 5. Enviar email de notificación del cambio
+ * 6. Retornar mensaje de éxito
  *
- * FUTURAS MEJORAS:
- * - Validar contraseña actual antes de cambiar (requires UpdatePasswordDto.currentPassword)
- * - Enviar email de notificación de cambio de contraseña
- * - Invalidar tokens JWT existentes (logout de otras sesiones)
+ * Reglas de negocio:
+ * - Requiere contraseña actual correcta (no permitir cambio con solo sesión activa)
+ * - Nueva contraseña debe ser diferente a la actual
+ * - Notificar por email (detectar acceso no autorizado)
+ *
+ * NOTA: Los tokens JWT existentes NO se invalidan (stateless).
+ * Las sesiones activas seguirán funcionando hasta que expiren.
+ * Mejora futura: implementar blacklist o passwordChangedAt timestamp.
  */
 @Injectable()
 export class UpdatePasswordUseCase {
   constructor(
     @Inject('IUserRepository')
     private readonly userRepository: IUserRepository,
+    @Inject('IEmailRepository')
+    private readonly emailRepository: IEmailRepository,
   ) {}
 
   /**
    * Ejecuta el caso de uso de actualización de contraseña
    *
    * @param id - UUID del usuario
-   * @param updatePasswordDto - Nueva contraseña
-   * @returns Usuario actualizado
+   * @param currentPassword - Contraseña actual (requerida)
+   * @param newPassword - Nueva contraseña
+   * @returns Mensaje de éxito
    * @throws NotFoundException si el usuario no existe
+   * @throws UnauthorizedException si la contraseña actual es incorrecta
+   * @throws BadRequestException si la nueva contraseña es igual a la actual
    */
   async execute(
     id: string,
-    updatePasswordDto: UpdatePasswordDto,
-  ): Promise<User> {
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<{ message: string }> {
     // 1. Verificar que el usuario existe
-    const existingUser = await this.userRepository.findById(id);
+    const user = await this.userRepository.findById(id);
 
-    if (!existingUser) {
+    if (!user) {
       throw new NotFoundException(`User with id ${id} not found`);
     }
 
-    // TODO: Verificar contraseña actual
-    // if (updatePasswordDto.currentPassword) {
-    //   const isValid = await bcrypt.compare(
-    //     updatePasswordDto.currentPassword,
-    //     existingUser.passwordHash
-    //   );
-    //   if (!isValid) {
-    //     throw new UnauthorizedException('Current password is incorrect');
-    //   }
-    // }
+    // 2. Verificar contraseña actual (seguridad crítica)
+    const isPasswordValid = await bcrypt.compare(
+      currentPassword,
+      user.passwordHash,
+    );
 
-    // 2. Actualizar contraseña (el repositorio hashea)
-    try {
-      const updatedUser = await this.userRepository.updatePassword({
-        userId: id,
-        newPassword: updatePasswordDto.newPassword,
+    if (!isPasswordValid) {
+      throw new UnauthorizedException('Current password is incorrect');
+    }
+
+    // 3. Validar que la nueva contraseña sea diferente a la actual
+    const isSamePassword = await bcrypt.compare(newPassword, user.passwordHash);
+
+    if (isSamePassword) {
+      throw new BadRequestException(
+        'New password must be different from current password',
+      );
+    }
+
+    // 4. Actualizar contraseña (el repositorio hashea con bcrypt)
+    await this.userRepository.updatePassword({
+      userId: user.id,
+      newPassword,
+    });
+
+    // 5. Enviar email de notificación (fire and forget - no bloquea)
+    this.emailRepository
+      .sendPasswordChangedEmail(user.email, user.name)
+      .catch((error) => {
+        console.error(
+          `Failed to send password changed email to ${user.email}:`,
+          error,
+        );
       });
 
-      return updatedUser;
-    } catch (error: any) {
-      if (error.message === 'User not found') {
-        throw new NotFoundException(`User with id ${id} not found`);
-      }
-
-      throw error;
-    }
+    // 6. Retornar mensaje de éxito
+    return {
+      message: 'Password updated successfully',
+    };
   }
 }

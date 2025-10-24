@@ -185,4 +185,43 @@ export class JwtServiceImpl implements IJwtRepository {
 
     return payload;
   }
+
+  /**
+   * Genera un token de restablecimiento de contraseña
+   * Expira en 1 hora (más corto que email verification por seguridad)
+   */
+  async generatePasswordResetToken(
+    userId: string,
+    email: string,
+  ): Promise<string> {
+    const payload = {
+      sub: userId,
+      email,
+      type: 'password_reset',
+    };
+
+    return this.jwtService.signAsync(
+      payload as any,
+      {
+        secret: this.jwtConfig.secret,
+        expiresIn: '1h', // Token expira en 1 hora (seguridad)
+      } as any,
+    );
+  }
+
+  /**
+   * Verifica que un token sea de tipo 'password_reset'
+   * Previene que se usen otros tipos de tokens
+   */
+  async verifyPasswordResetToken(token: string): Promise<JwtPayload> {
+    const payload = await this.verifyToken(token);
+
+    if (payload.type !== 'password_reset') {
+      throw new UnauthorizedException(
+        'Invalid token type. Expected password reset token',
+      );
+    }
+
+    return payload;
+  }
 }

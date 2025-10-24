@@ -417,6 +417,374 @@ When implementing database changes:
 4. Version migrations with timestamps (e.g., `20260115_create_matches_table.sql`)
 5. Store migrations in `database/migrations/` directory
 
+## Payments with Stripe
+
+This project implements **Stripe Embedded Checkout** for a one-time payment of **€1.99** to access premium features.
+
+### Payment Flow Overview
+
+1. **User creates account** → Email verification required
+2. **User logs in** → Receives JWT access token
+3. **User requests checkout** → Backend creates Stripe session
+4. **User completes payment** → Stripe Embedded Checkout (in frontend)
+5. **Stripe sends webhook** → Backend updates user's payment status
+6. **User gets access** → Premium features unlocked
+
+### Architecture
+
+The payment system follows **Clean Architecture** with clear separation of concerns:
+
+```
+Domain Layer (Core Business Logic)
+├── entities/user.entity.ts (hasPaid, paymentDate, stripeCustomerId)
+└── repositories/
+    ├── payment.repository.interface.ts (IPaymentRepository)
+    └── user.repository.interface.ts (updatePaymentStatus method)
+
+Application Layer (Use Cases)
+└── use-cases/payments/
+    ├── create-checkout-session.use-case.ts
+    ├── verify-payment-status.use-case.ts
+    ├── get-session-status.use-case.ts
+    └── handle-stripe-webhook.use-case.ts
+
+Infrastructure Layer (External Services)
+└── stripe/
+    ├── stripe.module.ts (Global Stripe client)
+    └── stripe-payment.service.ts (implements IPaymentRepository)
+
+Adapters Layer (HTTP/REST)
+├── controllers/payment.controller.ts
+└── dtos/payment/
+    ├── checkout-session-response.dto.ts
+    ├── payment-status-response.dto.ts
+    └── session-status-response.dto.ts
+
+Modules (NestJS DI)
+└── payment/payment.module.ts
+```
+
+### Database Schema
+
+Payment-related fields in the `users` table:
+
+```sql
+-- Payment fields (added to existing users table)
+has_paid BOOLEAN DEFAULT FALSE,
+payment_date TIMESTAMPTZ NULL,
+stripe_customer_id VARCHAR(255) NULL,
+stripe_session_id VARCHAR(255) NULL
+```
+
+**Migration SQL:**
+```sql
+ALTER TABLE users
+ADD COLUMN has_paid BOOLEAN DEFAULT FALSE,
+ADD COLUMN payment_date TIMESTAMPTZ NULL,
+ADD COLUMN stripe_customer_id VARCHAR(255) NULL,
+ADD COLUMN stripe_session_id VARCHAR(255) NULL;
+
+CREATE INDEX idx_users_stripe_customer_id ON users(stripe_customer_id)
+WHERE stripe_customer_id IS NOT NULL;
+```
+
+### API Endpoints
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `POST` | `/payments/create-checkout-session` | JWT | Creates Stripe checkout session |
+| `GET` | `/payments/verify-status` | JWT | Checks if user has paid (from DB) |
+| `GET` | `/payments/session-status/:sessionId` | JWT | Checks session status (from Stripe) |
+| `POST` | `/payments/webhook` | Stripe signature | Receives payment confirmation |
+
+### Environment Variables
+
+**Required in `.env`:**
+```bash
+# Stripe Configuration
+STRIPE_SECRET_KEY=sk_test_xxxxx           # Secret key (backend only, NEVER expose)
+STRIPE_PUBLISHABLE_KEY=pk_test_xxxxx      # Publishable key (safe for frontend)
+STRIPE_WEBHOOK_SECRET=whsec_xxxxx         # Webhook signing secret
+STRIPE_PRICE_ID=price_xxxxx               # Price ID for €1.99 product
+
+# Frontend URL (for redirect after payment)
+FRONTEND_URL=http://localhost:3000
+```
+
+### Stripe Configuration Steps
+
+#### 1. Create Product in Stripe Dashboard
+
+1. Go to **Stripe Dashboard → Products** (https://dashboard.stripe.com/test/products)
+2. Click **"Add product"**
+3. Configure:
+   - **Name:** "Porraza Access Pass"
+   - **Description:** "Acceso completo al torneo Porraza"
+   - **Pricing:** One-time payment, €1.99, EUR
+4. Save and **copy the `price_id`** (starts with `price_`)
+
+#### 2. Get API Keys
+
+1. Go to **Stripe Dashboard → Developers → API keys** (https://dashboard.stripe.com/test/apikeys)
+2. Copy:
+   - **Secret key** (sk_test_...) → Backend only
+   - **Publishable key** (pk_test_...) → Frontend only
+
+#### 3. Configure Webhooks
+
+**For Local Development (Stripe CLI):**
+```bash
+# Install Stripe CLI
+brew install stripe/stripe-cli/stripe  # macOS
+
+# Authenticate
+stripe login
+
+# Forward webhooks to local backend (IMPORTANT: Port 3001, not 4242!)
+stripe listen --forward-to http://localhost:3001/payments/webhook
+```
+
+Copy the `whsec_` secret from the output and add it to your `.env`:
+```bash
+STRIPE_WEBHOOK_SECRET=whsec_xxxxx
+```
+
+**For Production (Stripe Dashboard):**
+1. Go to **Stripe Dashboard → Developers → Webhooks** (https://dashboard.stripe.com/test/webhooks)
+2. Click **"Add endpoint"**
+3. URL: `https://your-domain.com/payments/webhook`
+4. Events: Select `checkout.session.completed`
+5. Copy the **Signing secret** and add to production `.env`
+
+### Testing Payments
+
+**Test Cards (Stripe Test Mode):**
+- **Success:** `4242 4242 4242 4242`
+- **Declined:** `4000 0000 0000 0002`
+- **3D Secure:** `4000 0025 0000 3155`
+- **Expiry:** Any future date (e.g., 12/34)
+- **CVC:** Any 3 digits (e.g., 123)
+- **ZIP:** Any code (e.g., 12345)
+
+**Test Workflow:**
+
+```bash
+# 1. Start backend
+pnpm run start:dev
+
+# 2. Start Stripe webhook listener (in another terminal)
+stripe listen --forward-to http://localhost:3001/payments/webhook
+
+# 3. Login to get JWT token
+curl -X POST http://localhost:3001/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email": "test@example.com", "password": "password123"}'
+
+# 4. Create checkout session
+curl -X POST http://localhost:3001/payments/create-checkout-session \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN"
+
+# Response: { "clientSecret": "cs_test_...", "sessionId": "cs_test_..." }
+
+# 5. Verify payment status (before payment)
+curl http://localhost:3001/payments/verify-status \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN"
+
+# Response: { "hasPaid": false, "paymentDate": null }
+
+# 6. Complete payment in frontend with test card 4242 4242 4242 4242
+
+# 7. Verify payment status (after payment)
+curl http://localhost:3001/payments/verify-status \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN"
+
+# Response: { "hasPaid": true, "paymentDate": "2025-10-24T..." }
+```
+
+### Webhook Processing
+
+When a payment is completed, Stripe sends a `checkout.session.completed` event to `/payments/webhook`:
+
+**Flow:**
+1. Stripe sends webhook with signature in `stripe-signature` header
+2. Backend validates signature with `STRIPE_WEBHOOK_SECRET`
+3. If valid, extracts `userId` from session metadata
+4. Updates user in database: `has_paid = true`, `payment_date = NOW()`
+5. Returns `200 OK` to Stripe (required to acknowledge receipt)
+
+**Important:**
+- Webhooks are **NOT authenticated with JWT** (validated by Stripe signature)
+- Backend must have `rawBody: true` in [src/main.ts](src/main.ts) to verify signatures
+- If signature verification fails, returns `400 Bad Request`
+
+### Security Considerations
+
+1. **API Keys:**
+   - Secret key (`sk_`) → Backend only, NEVER expose to frontend
+   - Publishable key (`pk_`) → Safe for frontend, public
+   - Webhook secret (`whsec_`) → Backend only, validates webhook authenticity
+
+2. **Prevent Duplicate Payments:**
+   - `CreateCheckoutSessionUseCase` checks `user.hasPaid` before creating session
+   - Returns `400 Bad Request` if user already paid
+
+3. **CORS Configuration:**
+   - Payments endpoints require JWT authentication (except webhook)
+   - Webhook validated by Stripe signature, not JWT
+
+4. **Database Constraints:**
+   - `has_paid` defaults to `FALSE`
+   - `payment_date` is `NULL` until payment completes
+   - Index on `stripe_customer_id` for fast lookups
+
+### Frontend Integration Guide
+
+**Frontend Tech Stack:** Next.js 15 with App Router, TypeScript, Tailwind CSS
+
+**Required npm packages:**
+```bash
+npm install @stripe/stripe-js
+```
+
+**Environment variables (frontend `.env.local`):**
+```bash
+NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_xxxxx
+NEXT_PUBLIC_API_URL=http://localhost:3001
+```
+
+**Example React Component:**
+
+```typescript
+// app/checkout/page.tsx
+'use client';
+
+import { useEffect, useState } from 'react';
+import { loadStripe } from '@stripe/stripe-js';
+import {
+  EmbeddedCheckoutProvider,
+  EmbeddedCheckout,
+} from '@stripe/react-stripe-js';
+
+const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!);
+
+export default function CheckoutPage() {
+  const [clientSecret, setClientSecret] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Fetch client secret from backend
+    fetch(`${process.env.NEXT_PUBLIC_API_URL}/payments/create-checkout-session`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('accessToken')}`,
+      },
+    })
+      .then((res) => res.json())
+      .then((data) => setClientSecret(data.clientSecret));
+  }, []);
+
+  if (!clientSecret) {
+    return <div>Loading checkout...</div>;
+  }
+
+  return (
+    <EmbeddedCheckoutProvider
+      stripe={stripePromise}
+      options={{ clientSecret }}
+    >
+      <EmbeddedCheckout />
+    </EmbeddedCheckoutProvider>
+  );
+}
+```
+
+**Success Page:**
+```typescript
+// app/checkout/success/page.tsx
+'use client';
+
+import { useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
+
+export default function SuccessPage() {
+  const searchParams = useSearchParams();
+  const sessionId = searchParams.get('session_id');
+  const [status, setStatus] = useState<any>(null);
+
+  useEffect(() => {
+    if (sessionId) {
+      fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/payments/session-status/${sessionId}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('accessToken')}`,
+          },
+        }
+      )
+        .then((res) => res.json())
+        .then((data) => setStatus(data));
+    }
+  }, [sessionId]);
+
+  if (!status) return <div>Loading...</div>;
+
+  return (
+    <div>
+      {status.hasPaid ? (
+        <div>
+          <h1>Payment Successful!</h1>
+          <p>Thank you for your payment.</p>
+          <p>Payment completed at: {new Date(status.paymentDate).toLocaleString()}</p>
+        </div>
+      ) : (
+        <div>
+          <h1>Payment Pending</h1>
+          <p>Your payment is being processed...</p>
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+### Troubleshooting
+
+**Common Issues:**
+
+1. **Webhook signature verification fails:**
+   - Check `STRIPE_WEBHOOK_SECRET` is correct in `.env`
+   - Ensure `rawBody: true` is set in [src/main.ts](src/main.ts)
+   - Verify Stripe CLI is forwarding to correct port (3001, not 4242)
+
+2. **"STRIPE_PRICE_ID is not configured":**
+   - Create product in Stripe Dashboard
+   - Copy `price_id` and add to `.env`
+   - Restart backend
+
+3. **User already paid error:**
+   - This is expected behavior (prevents duplicate payments)
+   - Check `users.has_paid` in database
+
+4. **Webhook not received:**
+   - Check Stripe CLI is running: `stripe listen --forward-to http://localhost:3001/payments/webhook`
+   - Check backend logs for webhook events
+   - Verify firewall allows connections on port 3001
+
+**Debug Commands:**
+
+```bash
+# Check if backend is running
+curl http://localhost:3001
+
+# Check Stripe webhook secret
+echo $STRIPE_WEBHOOK_SECRET
+
+# View recent Stripe events
+stripe events list
+
+# Test webhook manually
+stripe trigger checkout.session.completed
+```
+
 ## Deployment & Infrastructure
 
 This application is deployed on a **Hetzner Cloud Server** running Ubuntu 22.04 LTS using Docker containers and automated CI/CD with GitHub Actions.

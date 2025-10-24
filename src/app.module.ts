@@ -7,6 +7,8 @@ import { TeamModule } from '@modules/team/team.module';
 import { MatchModule } from '@modules/match/match.module';
 import { UserModule } from '@modules/user/user.module';
 import { AuthModule } from '@modules/auth/auth.module';
+import { PaymentModule } from '@modules/payment/payment.module';
+import { LeagueModule } from '@modules/league/league.module';
 
 @Module({
   imports: [
@@ -16,6 +18,8 @@ import { AuthModule } from '@modules/auth/auth.module';
     MatchModule, // Módulo de funcionalidad de partidos
     UserModule, // Módulo de funcionalidad de usuarios
     AuthModule, // Módulo de autenticación JWT
+    PaymentModule, // Módulo de pagos con Stripe
+    LeagueModule, // Módulo de funcionalidad de ligas
   ],
   controllers: [AppController],
   providers: [AppService],

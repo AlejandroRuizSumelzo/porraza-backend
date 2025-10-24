@@ -31,6 +31,17 @@ export interface UpdatePasswordData {
 }
 
 /**
+ * Datos para actualizar el estado de pago de un usuario
+ * Se usa cuando Stripe confirma un pago exitoso via webhook
+ */
+export interface UpdatePaymentStatusParams {
+  hasPaid: boolean;
+  paymentDate: Date;
+  stripeCustomerId: string;
+  stripeSessionId: string;
+}
+
+/**
  * IUserRepository (Domain Layer - Port)
  *
  * Interface que define el contrato que debe cumplir cualquier implementación
@@ -140,4 +151,17 @@ export interface IUserRepository {
    * @note Útil para validación antes de crear usuario
    */
   emailExists(email: string): Promise<boolean>;
+
+  /**
+   * Actualiza el estado de pago de un usuario
+   * @param userId - UUID del usuario
+   * @param params - Datos del pago (hasPaid, paymentDate, stripeCustomerId, stripeSessionId)
+   * @returns void
+   * @throws Error si el usuario no existe
+   * @note Se ejecuta cuando Stripe confirma el pago via webhook
+   */
+  updatePaymentStatus(
+    userId: string,
+    params: UpdatePaymentStatusParams,
+  ): Promise<void>;
 }

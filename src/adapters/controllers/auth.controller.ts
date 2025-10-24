@@ -24,12 +24,16 @@ import { RegisterDto } from '@adapters/dtos/auth/register.dto';
 import { RegisterResponseDto } from '@adapters/dtos/auth/register-response.dto';
 import { VerifyEmailDto } from '@adapters/dtos/auth/verify-email.dto';
 import { ResendVerificationDto } from '@adapters/dtos/auth/resend-verification.dto';
+import { RequestPasswordResetDto } from '@adapters/dtos/auth/request-password-reset.dto';
+import { ResetPasswordDto } from '@adapters/dtos/auth/reset-password.dto';
 import { UserResponseDto } from '@adapters/dtos/user/user-response.dto';
 import { LoginUseCase } from '@application/use-cases/auth/login.use-case';
 import { RefreshTokenUseCase } from '@application/use-cases/auth/refresh-token.use-case';
 import { RegisterUseCase } from '@application/use-cases/auth/register.use-case';
 import { VerifyEmailUseCase } from '@application/use-cases/auth/verify-email.use-case';
 import { ResendVerificationUseCase } from '@application/use-cases/auth/resend-verification.use-case';
+import { RequestPasswordResetUseCase } from '@application/use-cases/auth/request-password-reset.use-case';
+import { ResetPasswordUseCase } from '@application/use-cases/auth/reset-password.use-case';
 import { JwtAuthGuard } from '@adapters/guards/jwt-auth.guard';
 import { AuthCookiesHelper } from '@infrastructure/auth/auth-cookies.helper';
 import type { Request, Response } from 'express';
@@ -77,6 +81,8 @@ export class AuthController {
     private readonly refreshTokenUseCase: RefreshTokenUseCase,
     private readonly verifyEmailUseCase: VerifyEmailUseCase,
     private readonly resendVerificationUseCase: ResendVerificationUseCase,
+    private readonly requestPasswordResetUseCase: RequestPasswordResetUseCase,
+    private readonly resetPasswordUseCase: ResetPasswordUseCase,
   ) {}
 
   /**
@@ -294,9 +300,7 @@ export class AuthController {
       },
     },
   })
-  async logout(
-    @Res({ passthrough: true }) res: Response,
-  ): Promise<{ message: string }> {
+  logout(@Res({ passthrough: true }) res: Response): { message: string } {
     // Limpiar cookies HTTP-only
     AuthCookiesHelper.clearAuthCookies(res);
 
@@ -459,5 +463,111 @@ export class AuthController {
   ): Promise<{ message: string }> {
     await this.resendVerificationUseCase.execute(resendDto.email);
     return { message: 'Verification email sent successfully' };
+  }
+
+  /**
+   * POST /auth/forgot-password
+   * Solicitar restablecimiento de contraseña
+   */
+  @Post('forgot-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Request password reset',
+    description:
+      'Request a password reset email. Sends an email with a password reset link valid for 1 hour. Always returns success (does not reveal if email exists in system for security).',
+  })
+  @ApiBody({
+    type: RequestPasswordResetDto,
+    description: 'User email',
+    examples: {
+      example1: {
+        summary: 'Valid email',
+        value: {
+          email: 'user@example.com',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Password reset email sent (if email exists). Always returns generic message for security.',
+    schema: {
+      example: {
+        message: 'Si el email existe, recibirás un enlace de recuperación.',
+      },
+    },
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad Request - Invalid email format',
+  })
+  async requestPasswordReset(
+    @Body() requestDto: RequestPasswordResetDto,
+  ): Promise<{ message: string }> {
+    return this.requestPasswordResetUseCase.execute(requestDto.email);
+  }
+
+  /**
+   * POST /auth/reset-password
+   * Restablecer contraseña con token
+   */
+  @Post('reset-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Reset password with token',
+    description:
+      'Reset user password using the token received in the password reset email. The token is valid for 1 hour. After successful reset, a confirmation email is sent.',
+  })
+  @ApiBody({
+    type: ResetPasswordDto,
+    description: 'Reset token and new password',
+    examples: {
+      example1: {
+        summary: 'Valid reset request',
+        value: {
+          token:
+            'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJlMDk2ZGNiMS05ZjIwLTRjZTUtODlhYy03NDBkNDEyODNmYjkiLCJlbWFpbCI6ImpvaG4uZG9lQGV4YW1wbGUuY29tIiwidHlwZSI6InBhc3N3b3JkX3Jlc2V0IiwiaWF0IjoxNjE2MjM5MDIyLCJleHAiOjE2MTYyNDI2MjJ9.xxxxx',
+          newPassword: 'NewSecurePass456',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Password reset successfully. Confirmation email sent. User can now login with new password.',
+    schema: {
+      example: {
+        message: 'Contraseña restablecida correctamente',
+      },
+    },
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad Request - Password does not meet requirements',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - Invalid, expired, or wrong token type',
+    schema: {
+      example: {
+        statusCode: 401,
+        message: 'Invalid or expired reset token',
+        error: 'Unauthorized',
+      },
+    },
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Not Found - User not found',
+  })
+  async resetPassword(
+    @Body() resetDto: ResetPasswordDto,
+  ): Promise<{ message: string }> {
+    return this.resetPasswordUseCase.execute(
+      resetDto.token,
+      resetDto.newPassword,
+    );
   }
 }

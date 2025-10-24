@@ -5,7 +5,11 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import cookieParser from 'cookie-parser';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  // IMPORTANTE: rawBody: true es NECESARIO para webhooks de Stripe
+  // Permite acceder al body crudo (Buffer) para validar la firma del webhook
+  const app = await NestFactory.create(AppModule, {
+    rawBody: true,
+  });
 
   // Enable cookie parser for handling HTTP-only cookies
   app.use(cookieParser());
@@ -33,6 +37,28 @@ async function bootstrap() {
     .setDescription('API documentation for Porraza Backend')
     .setVersion('1.0')
     .addTag('porraza')
+    .addBearerAuth(
+      {
+        type: 'http',
+        scheme: 'bearer',
+        bearerFormat: 'JWT',
+        name: 'Authorization',
+        description: 'Enter JWT token (copy from /auth/login response)',
+        in: 'header',
+      },
+      'JWT-auth', // Security scheme name
+    )
+    .addCookieAuth(
+      'accessToken',
+      {
+        type: 'apiKey',
+        in: 'cookie',
+        name: 'accessToken',
+        description:
+          'JWT token stored in HTTP-only cookie (automatically sent by browser)',
+      },
+      'cookie-auth', // Alternative security scheme name
+    )
     .build();
 
   const document = SwaggerModule.createDocument(app, config);

@@ -3,6 +3,8 @@ import { Resend } from 'resend';
 import type { IEmailRepository } from '@domain/repositories/email.repository.interface';
 import { getVerificationEmailTemplate } from './templates/verification-email.template';
 import { getWelcomeEmailTemplate } from './templates/welcome-email.template';
+import { getPasswordResetEmailTemplate } from './templates/password-reset-email.template';
+import { getPasswordChangedEmailTemplate } from './templates/password-changed-email.template';
 
 /**
  * ResendEmailService (Infrastructure Layer)
@@ -78,22 +80,30 @@ export class ResendEmailService implements IEmailRepository {
   }
 
   /**
-   * Envía email de restablecimiento de contraseña (futuro)
+   * Envía email de restablecimiento de contraseña
    */
-  async sendPasswordResetEmail(to: string, token: string): Promise<void> {
+  async sendPasswordResetEmail(
+    to: string,
+    token: string,
+    name: string,
+  ): Promise<void> {
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
     const resetUrl = `${frontendUrl}/reset-password?token=${token}`;
 
-    // TODO: Crear template de password reset
-    const subject = 'Restablece tu contraseña de Porraza';
-    const html = `
-      <h1>Restablecer Contraseña</h1>
-      <p>Haz clic en el siguiente enlace para restablecer tu contraseña:</p>
-      <a href="${resetUrl}">Restablecer Contraseña</a>
-      <p>Este enlace expira en 1 hora.</p>
-    `;
+    const subject = 'Recupera tu contraseña - Porraza';
+    const html = getPasswordResetEmailTemplate(name, resetUrl);
 
     await this.sendEmail(to, subject, html, 'password-reset');
+  }
+
+  /**
+   * Envía email de notificación de cambio de contraseña
+   */
+  async sendPasswordChangedEmail(to: string, name: string): Promise<void> {
+    const subject = 'Tu contraseña ha sido actualizada - Porraza';
+    const html = getPasswordChangedEmailTemplate(name);
+
+    await this.sendEmail(to, subject, html, 'password-changed');
   }
 
   /**

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { DatabaseModule } from '@infrastructure/persistence/database.module';
+import { EmailModule } from '@modules/email/email.module';
 import { UserController } from '@adapters/controllers/user.controller';
 import { CreateUserUseCase } from '@application/use-cases/users/create-user.use-case';
 import { GetUserByIdUseCase } from '@application/use-cases/users/get-user-by-id.use-case';
@@ -54,6 +55,7 @@ import { UserRepository } from '@infrastructure/persistence/repositories/user.re
 @Module({
   imports: [
     DatabaseModule, // Importar para tener acceso a DATABASE_POOL
+    EmailModule, // Importar para acceder a IEmailRepository (usado por UpdatePasswordUseCase)
   ],
   controllers: [
     UserController, // Controlador REST que maneja los endpoints HTTP

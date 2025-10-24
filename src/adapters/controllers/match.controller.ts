@@ -5,13 +5,21 @@ import {
   HttpCode,
   HttpStatus,
   NotFoundException,
+  UseGuards,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiParam,
+  ApiBearerAuth,
+} from '@nestjs/swagger';
 import { GetAllMatchesUseCase } from '@application/use-cases/matches/get-all-matches.use-case';
 import { GetMatchByIdUseCase } from '@application/use-cases/matches/get-match-by-id.use-case';
 import { GetMatchCalendarUseCase } from '@application/use-cases/matches/get-match-calendar.use-case';
 import { MatchResponseDto } from '@adapters/dtos/match.response.dto';
 import { MatchCalendarResponseDto } from '@adapters/dtos/match-calendar.response.dto';
+import { JwtAuthGuard } from '@adapters/guards/jwt-auth.guard';
 
 /**
  * MatchController (Adapters Layer)
@@ -46,6 +54,8 @@ export class MatchController {
    * IMPORTANTE: Este endpoint debe ir ANTES de GET /matches/:id para evitar conflictos de rutas
    */
   @Get('calendar')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Obtener calendario del Mundial',
@@ -56,6 +66,10 @@ export class MatchController {
     status: 200,
     description: 'Calendario obtenido exitosamente',
     type: MatchCalendarResponseDto,
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'No autorizado - Token inválido o no proporcionado',
   })
   @ApiResponse({
     status: 500,
@@ -71,6 +85,8 @@ export class MatchController {
    * Obtiene la lista de todos los partidos
    */
   @Get()
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Obtener todos los partidos',
@@ -81,6 +97,10 @@ export class MatchController {
     status: 200,
     description: 'Lista de partidos obtenida exitosamente',
     type: [MatchResponseDto],
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'No autorizado - Token inválido o no proporcionado',
   })
   @ApiResponse({
     status: 500,
@@ -99,6 +119,8 @@ export class MatchController {
    * Obtiene un partido por su ID
    */
   @Get(':id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Obtener un partido por ID',
@@ -114,6 +136,10 @@ export class MatchController {
     status: 200,
     description: 'Partido encontrado exitosamente',
     type: MatchResponseDto,
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'No autorizado - Token inválido o no proporcionado',
   })
   @ApiResponse({
     status: 404,

@@ -84,6 +84,32 @@ export class UserResponseDto {
   })
   lastLoginAt: Date | null;
 
+  @ApiProperty({
+    description:
+      'Payment status (true = user has paid for access, false = payment pending)',
+    example: false,
+    type: Boolean,
+  })
+  hasPaid: boolean;
+
+  @ApiProperty({
+    description:
+      'Timestamp when payment was completed (null if payment not completed)',
+    example: '2025-10-22T15:00:00.000Z',
+    type: String,
+    format: 'date-time',
+    nullable: true,
+  })
+  paymentDate: Date | null;
+
+  @ApiProperty({
+    description: 'Stripe customer ID (null if no payment made yet)',
+    example: 'cus_xxxxxxxxxxxxx',
+    type: String,
+    nullable: true,
+  })
+  stripeCustomerId: string | null;
+
   /**
    * Constructor privado para forzar uso del factory method
    */
@@ -96,6 +122,9 @@ export class UserResponseDto {
     createdAt: Date,
     updatedAt: Date,
     lastLoginAt: Date | null,
+    hasPaid: boolean,
+    paymentDate: Date | null,
+    stripeCustomerId: string | null,
   ) {
     this.id = id;
     this.email = email;
@@ -105,11 +134,14 @@ export class UserResponseDto {
     this.createdAt = createdAt;
     this.updatedAt = updatedAt;
     this.lastLoginAt = lastLoginAt;
+    this.hasPaid = hasPaid;
+    this.paymentDate = paymentDate;
+    this.stripeCustomerId = stripeCustomerId;
   }
 
   /**
    * Factory method para crear DTO desde entidad User
-   * Excluye password_hash automáticamente
+   * Excluye password_hash y stripeSessionId por seguridad
    */
   static fromEntity(user: User): UserResponseDto {
     return new UserResponseDto(
@@ -121,6 +153,9 @@ export class UserResponseDto {
       user.createdAt,
       user.updatedAt,
       user.lastLoginAt,
+      user.hasPaid,
+      user.paymentDate,
+      user.stripeCustomerId,
     );
   }
 

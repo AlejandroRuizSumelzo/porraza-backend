@@ -113,4 +113,24 @@ export interface IJwtRepository {
    * @throws Error si no es un token de verificación válido o ha expirado
    */
   verifyEmailVerificationToken(token: string): Promise<JwtPayload>;
+
+  /**
+   * Genera un token de restablecimiento de contraseña
+   * Se envía por email al usuario cuando solicita restablecer su contraseña
+   *
+   * @param userId - ID del usuario
+   * @param email - Email del usuario
+   * @returns Token JWT con expiración de 1h (seguridad)
+   */
+  generatePasswordResetToken(userId: string, email: string): Promise<string>;
+
+  /**
+   * Verifica que un token sea de tipo 'password_reset'
+   * Usado en el endpoint de restablecimiento de contraseña
+   *
+   * @param token - Token JWT a verificar
+   * @returns Payload si es válido y de tipo 'password_reset'
+   * @throws Error si no es un token de reset válido o ha expirado
+   */
+  verifyPasswordResetToken(token: string): Promise<JwtPayload>;
 }

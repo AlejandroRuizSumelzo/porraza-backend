@@ -36,11 +36,25 @@ export interface IEmailRepository {
   sendWelcomeEmail(to: string, name: string): Promise<void>;
 
   /**
-   * Envía un email para restablecer la contraseña (futuro)
+   * Envía un email para restablecer la contraseña
    *
    * @param to - Email del destinatario
    * @param token - Token JWT de restablecimiento (válido por 1h)
+   * @param name - Nombre del usuario para personalizar el email
    * @throws Error si el envío falla
    */
-  sendPasswordResetEmail(to: string, token: string): Promise<void>;
+  sendPasswordResetEmail(
+    to: string,
+    token: string,
+    name: string,
+  ): Promise<void>;
+
+  /**
+   * Envía un email de notificación cuando la contraseña ha sido cambiada
+   *
+   * @param to - Email del destinatario
+   * @param name - Nombre del usuario para personalizar el email
+   * @throws Error si el envío falla
+   */
+  sendPasswordChangedEmail(to: string, name: string): Promise<void>;
 }

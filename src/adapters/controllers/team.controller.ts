@@ -5,11 +5,19 @@ import {
   HttpCode,
   HttpStatus,
   NotFoundException,
+  UseGuards,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiParam,
+  ApiBearerAuth,
+} from '@nestjs/swagger';
 import { GetAllTeamsUseCase } from '@application/use-cases/teams/get-all-teams.use-case';
 import { GetTeamByIdUseCase } from '@application/use-cases/teams/get-team-by-id.use-case';
 import { TeamResponseDto } from '@adapters/dtos/team.response.dto';
+import { JwtAuthGuard } from '@adapters/guards/jwt-auth.guard';
 
 /**
  * TeamController (Adapters Layer)
@@ -42,6 +50,8 @@ export class TeamController {
    * Obtiene la lista de todos los equipos
    */
   @Get()
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Obtener todos los equipos',
@@ -52,6 +62,10 @@ export class TeamController {
     status: 200,
     description: 'Lista de equipos obtenida exitosamente',
     type: [TeamResponseDto],
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'No autorizado - Token inválido o no proporcionado',
   })
   @ApiResponse({
     status: 500,
@@ -70,6 +84,8 @@ export class TeamController {
    * Obtiene un equipo por su ID
    */
   @Get(':id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Obtener un equipo por ID',
@@ -85,6 +101,10 @@ export class TeamController {
     status: 200,
     description: 'Equipo encontrado exitosamente',
     type: TeamResponseDto,
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'No autorizado - Token inválido o no proporcionado',
   })
   @ApiResponse({
     status: 404,

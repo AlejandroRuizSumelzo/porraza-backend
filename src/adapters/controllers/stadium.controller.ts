@@ -1,7 +1,19 @@
-import { Controller, Get, HttpCode, HttpStatus } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import {
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  UseGuards,
+} from '@nestjs/common';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+} from '@nestjs/swagger';
 import { GetAllStadiumsUseCase } from '@application/use-cases/stadium/get-all-stadiums.use-case';
-import { StadiumResponseDto } from '@adapters/dto/stadium-response.dto';
+import { StadiumResponseDto } from '@adapters/dtos/stadium-response.dto';
+import { JwtAuthGuard } from '@adapters/guards/jwt-auth.guard';
 
 /**
  * StadiumController (Adapters Layer)
@@ -31,6 +43,8 @@ export class StadiumController {
    * Obtiene la lista de todos los estadios
    */
   @Get()
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Obtener todos los estadios',
@@ -41,6 +55,10 @@ export class StadiumController {
     status: 200,
     description: 'Lista de estadios obtenida exitosamente',
     type: [StadiumResponseDto],
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'No autorizado - Token inválido o no proporcionado',
   })
   @ApiResponse({
     status: 500,

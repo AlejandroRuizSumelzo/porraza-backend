@@ -11,6 +11,10 @@ export interface UserDatabaseRow {
   created_at: Date;
   updated_at: Date;
   last_login_at: Date | null;
+  has_paid: boolean;
+  payment_date: Date | null;
+  stripe_customer_id: string | null;
+  stripe_session_id: string | null;
 }
 
 /**
@@ -31,6 +35,10 @@ export interface UserDatabaseRow {
  * - is_active permite suspender cuentas sin eliminarlas
  * - email_verified indica si el usuario ha verificado su email
  * - last_login_at se actualiza en cada login exitoso
+ * - has_paid indica si el usuario ha completado el pago de acceso (1,99€)
+ * - payment_date almacena la fecha en que se completó el pago
+ * - stripe_customer_id es el ID del cliente en Stripe (cus_xxxxx)
+ * - stripe_session_id es el ID de la última sesión de checkout (cs_xxxxx)
  */
 export class User {
   constructor(
@@ -43,6 +51,10 @@ export class User {
     public readonly createdAt: Date,
     public readonly updatedAt: Date,
     public readonly lastLoginAt: Date | null,
+    public readonly hasPaid: boolean,
+    public readonly paymentDate: Date | null,
+    public readonly stripeCustomerId: string | null,
+    public readonly stripeSessionId: string | null,
   ) {
     this.validate();
   }
@@ -100,6 +112,10 @@ export class User {
       new Date(data.created_at),
       new Date(data.updated_at),
       data.last_login_at ? new Date(data.last_login_at) : null,
+      data.has_paid,
+      data.payment_date ? new Date(data.payment_date) : null,
+      data.stripe_customer_id,
+      data.stripe_session_id,
     );
   }
 
@@ -161,6 +177,14 @@ export class User {
   }
 
   /**
+   * Verifica si el usuario ha completado el pago
+   * Regla de negocio para acceso premium
+   */
+  hasCompletedPayment(): boolean {
+    return this.hasPaid;
+  }
+
+  /**
    * Convierte la entidad a un objeto plano (sin métodos)
    * Útil para serialización
    */
@@ -173,6 +197,10 @@ export class User {
     createdAt: Date;
     updatedAt: Date;
     lastLoginAt: Date | null;
+    hasPaid: boolean;
+    paymentDate: Date | null;
+    stripeCustomerId: string | null;
+    stripeSessionId: string | null;
   } {
     return {
       id: this.id,
@@ -183,6 +211,10 @@ export class User {
       createdAt: this.createdAt,
       updatedAt: this.updatedAt,
       lastLoginAt: this.lastLoginAt,
+      hasPaid: this.hasPaid,
+      paymentDate: this.paymentDate,
+      stripeCustomerId: this.stripeCustomerId,
+      stripeSessionId: this.stripeSessionId,
     };
   }
 

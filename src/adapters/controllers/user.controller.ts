@@ -8,6 +8,9 @@ import {
   Param,
   HttpCode,
   HttpStatus,
+  UseGuards,
+  Req,
+  ForbiddenException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -15,6 +18,7 @@ import {
   ApiResponse,
   ApiParam,
   ApiBody,
+  ApiBearerAuth,
 } from '@nestjs/swagger';
 import { CreateUserDto } from '@adapters/dtos/user/create-user.dto';
 import { UpdateUserDto } from '@adapters/dtos/user/update-user.dto';
@@ -27,6 +31,17 @@ import { GetAllUsersUseCase } from '@application/use-cases/users/get-all-users.u
 import { UpdateUserUseCase } from '@application/use-cases/users/update-user.use-case';
 import { UpdatePasswordUseCase } from '@application/use-cases/users/update-password.use-case';
 import { DeleteUserUseCase } from '@application/use-cases/users/delete-user.use-case';
+import { JwtAuthGuard } from '@adapters/guards/jwt-auth.guard';
+import type { User } from '@domain/entities/user.entity';
+import type { Request } from 'express';
+
+/**
+ * Extend Express Request para incluir user
+ * Después de pasar por JwtAuthGuard, request.user contiene el User de dominio
+ */
+interface RequestWithUser extends Request {
+  user: User;
+}
 
 /**
  * UserController (Adapters Layer)
@@ -141,6 +156,8 @@ export class UserController {
    * Obtener lista de todos los usuarios
    */
   @Get()
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: 'Get all users',
     description:
@@ -150,6 +167,10 @@ export class UserController {
     status: 200,
     description: 'List of users retrieved successfully',
     type: [UserResponseDto],
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'No autorizado - Token inválido o no proporcionado',
   })
   @ApiResponse({
     status: 500,
@@ -165,6 +186,8 @@ export class UserController {
    * Obtener un usuario por su ID
    */
   @Get(':id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: 'Get user by ID',
     description:
@@ -181,6 +204,10 @@ export class UserController {
     status: 200,
     description: 'User found successfully',
     type: UserResponseDto,
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'No autorizado - Token inválido o no proporcionado',
   })
   @ApiResponse({
     status: 404,
@@ -207,10 +234,12 @@ export class UserController {
    * Obtener un usuario por su email
    */
   @Get('email/:email')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: 'Get user by email',
     description:
-      'Retrieve user information by their email address. Useful for login flows and email verification. NOTE: Consider if this endpoint should require authentication in production.',
+      'Retrieve user information by their email address. Useful for login flows and email verification. Requires authentication.',
   })
   @ApiParam({
     name: 'email',
@@ -223,6 +252,10 @@ export class UserController {
     status: 200,
     description: 'User found successfully',
     type: UserResponseDto,
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'No autorizado - Token inválido o no proporcionado',
   })
   @ApiResponse({
     status: 404,
@@ -249,6 +282,8 @@ export class UserController {
    * Actualizar perfil de usuario
    */
   @Patch(':id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: 'Update user profile',
     description:
@@ -304,6 +339,10 @@ export class UserController {
     },
   })
   @ApiResponse({
+    status: 401,
+    description: 'No autorizado - Token inválido o no proporcionado',
+  })
+  @ApiResponse({
     status: 404,
     description: 'Not Found - User does not exist',
     schema: {
@@ -339,28 +378,31 @@ export class UserController {
 
   /**
    * PATCH /users/:id/password
-   * Cambiar contraseña de usuario
+   * Cambiar contraseña de usuario (requiere autenticación)
    */
   @Patch(':id/password')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
   @ApiOperation({
-    summary: 'Update user password',
+    summary: 'Update user password (requires authentication)',
     description:
-      'Change the password for a user account. The new password will be securely hashed using bcrypt before storing. FUTURE: Will require current password verification, send email notification, and invalidate existing JWT tokens.',
+      'Change the password for the authenticated user account. Requires current password verification (security measure). The new password will be securely hashed using bcrypt before storing. Sends email notification after successful change. NOTE: JWT tokens are stateless and remain valid until expiration (active sessions continue working).',
   })
   @ApiParam({
     name: 'id',
-    description: 'UUID of the user',
+    description: 'UUID of the user (must match authenticated user)',
     example: 'e096dcb1-9f20-4ce5-89ac-740d41283fb9',
     type: String,
     format: 'uuid',
   })
   @ApiBody({
     type: UpdatePasswordDto,
-    description: 'New password data',
+    description: 'Current password and new password',
     examples: {
       example1: {
         summary: 'Valid password update',
         value: {
+          currentPassword: 'CurrentPass123',
           newPassword: 'NewSecurePass456',
         },
       },
@@ -368,21 +410,47 @@ export class UserController {
   })
   @ApiResponse({
     status: 200,
-    description: 'Password updated successfully',
-    type: UserResponseDto,
+    description:
+      'Password updated successfully. Notification email sent. User can login with new password.',
+    schema: {
+      example: {
+        message: 'Password updated successfully',
+      },
+    },
   })
   @ApiResponse({
     status: 400,
     description:
-      'Bad Request - New password does not meet security requirements',
+      'Bad Request - New password does not meet security requirements or is same as current password',
     schema: {
       example: {
         statusCode: 400,
-        message: [
-          'Password must be at least 8 characters long',
-          'Password must contain at least one uppercase letter, one lowercase letter, and one number',
-        ],
+        message: 'New password must be different from current password',
         error: 'Bad Request',
+      },
+    },
+  })
+  @ApiResponse({
+    status: 401,
+    description:
+      'Unauthorized - Missing/invalid JWT token or current password is incorrect',
+    schema: {
+      example: {
+        statusCode: 401,
+        message: 'Current password is incorrect',
+        error: 'Unauthorized',
+      },
+    },
+  })
+  @ApiResponse({
+    status: 403,
+    description:
+      'Forbidden - Trying to change password of another user (users can only change their own password)',
+    schema: {
+      example: {
+        statusCode: 403,
+        message: 'You can only change your own password',
+        error: 'Forbidden',
       },
     },
   })
@@ -404,12 +472,19 @@ export class UserController {
   async updatePassword(
     @Param('id') id: string,
     @Body() updatePasswordDto: UpdatePasswordDto,
-  ): Promise<UserResponseDto> {
-    const user = await this.updatePasswordUseCase.execute(
+    @Req() req: RequestWithUser,
+  ): Promise<{ message: string }> {
+    // Validar que el usuario solo pueda cambiar su propia contraseña (seguridad)
+    if (req.user.id !== id) {
+      throw new ForbiddenException('You can only change your own password');
+    }
+
+    // Ejecutar use case con contraseña actual y nueva contraseña
+    return this.updatePasswordUseCase.execute(
       id,
-      updatePasswordDto,
+      updatePasswordDto.currentPassword,
+      updatePasswordDto.newPassword,
     );
-    return UserResponseDto.fromEntity(user);
   }
 
   /**
@@ -417,6 +492,8 @@ export class UserController {
    * Eliminar cuenta de usuario
    */
   @Delete(':id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({
     summary: 'Delete user account',
@@ -433,6 +510,10 @@ export class UserController {
   @ApiResponse({
     status: 204,
     description: 'User deleted successfully (No Content)',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'No autorizado - Token inválido o no proporcionado',
   })
   @ApiResponse({
     status: 404,

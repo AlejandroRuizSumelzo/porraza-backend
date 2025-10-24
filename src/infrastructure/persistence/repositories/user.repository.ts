@@ -6,6 +6,7 @@ import type {
   CreateUserData,
   UpdateUserData,
   UpdatePasswordData,
+  UpdatePaymentStatusParams,
 } from '@domain/repositories/user.repository.interface';
 import { User, type UserDatabaseRow } from '@domain/entities/user.entity';
 
@@ -54,7 +55,11 @@ export class UserRepository implements IUserRepository {
         email_verified,
         created_at,
         updated_at,
-        last_login_at
+        last_login_at,
+        has_paid,
+        payment_date,
+        stripe_customer_id,
+        stripe_session_id
       FROM users
       WHERE id = $1
     `;
@@ -90,7 +95,11 @@ export class UserRepository implements IUserRepository {
         email_verified,
         created_at,
         updated_at,
-        last_login_at
+        last_login_at,
+        has_paid,
+        payment_date,
+        stripe_customer_id,
+        stripe_session_id
       FROM users
       WHERE email = $1
     `;
@@ -127,7 +136,11 @@ export class UserRepository implements IUserRepository {
         email_verified,
         created_at,
         updated_at,
-        last_login_at
+        last_login_at,
+        has_paid,
+        payment_date,
+        stripe_customer_id,
+        stripe_session_id
       FROM users
       ORDER BY created_at DESC
     `;
@@ -167,7 +180,11 @@ export class UserRepository implements IUserRepository {
         email_verified,
         created_at,
         updated_at,
-        last_login_at
+        last_login_at,
+        has_paid,
+        payment_date,
+        stripe_customer_id,
+        stripe_session_id
     `;
 
     try {
@@ -253,7 +270,11 @@ export class UserRepository implements IUserRepository {
         email_verified,
         created_at,
         updated_at,
-        last_login_at
+        last_login_at,
+        has_paid,
+        payment_date,
+        stripe_customer_id,
+        stripe_session_id
     `;
 
     try {
@@ -307,7 +328,11 @@ export class UserRepository implements IUserRepository {
         email_verified,
         created_at,
         updated_at,
-        last_login_at
+        last_login_at,
+        has_paid,
+        payment_date,
+        stripe_customer_id,
+        stripe_session_id
     `;
 
     try {
@@ -359,12 +384,17 @@ export class UserRepository implements IUserRepository {
 
   /**
    * Marca el email de un usuario como verificado
+   *
+   * IMPORTANTE: Esta operación es atómica y protegida contra race conditions.
+   * Solo actualiza si email_verified = FALSE, evitando múltiples actualizaciones
+   * simultáneas que causarían envío duplicado de welcome emails.
    */
   async verifyEmail(id: string): Promise<User> {
     const query = `
       UPDATE users
       SET email_verified = TRUE
       WHERE id = $1
+        AND email_verified = FALSE
       RETURNING
         id,
         email,
@@ -374,7 +404,11 @@ export class UserRepository implements IUserRepository {
         email_verified,
         created_at,
         updated_at,
-        last_login_at
+        last_login_at,
+        has_paid,
+        payment_date,
+        stripe_customer_id,
+        stripe_session_id
     `;
 
     try {
@@ -384,7 +418,15 @@ export class UserRepository implements IUserRepository {
       );
 
       if (result.rows.length === 0) {
-        throw new Error('User not found');
+        // El usuario no existe O ya estaba verificado
+        // Buscar el usuario para determinar cuál es el caso
+        const user = await this.findById(id);
+        if (!user) {
+          throw new Error('User not found');
+        }
+        // Si el usuario existe pero no se actualizó, es porque ya estaba verificado
+        // Retornar el usuario existente (idempotencia)
+        return user;
       }
 
       return User.fromDatabase(result.rows[0]);
@@ -439,6 +481,47 @@ export class UserRepository implements IUserRepository {
     } catch (error) {
       console.error(`Error checking if email exists ${email}:`, error);
       throw new Error('Failed to check email existence in database');
+    }
+  }
+
+  /**
+   * Actualiza el estado de pago de un usuario
+   * Se ejecuta cuando Stripe confirma un pago exitoso via webhook
+   */
+  async updatePaymentStatus(
+    userId: string,
+    params: UpdatePaymentStatusParams,
+  ): Promise<void> {
+    const query = `
+      UPDATE users
+      SET
+        has_paid = $1,
+        payment_date = $2,
+        stripe_customer_id = $3,
+        stripe_session_id = $4,
+        updated_at = NOW()
+      WHERE id = $5
+    `;
+
+    try {
+      const result = await this.pool.query(query, [
+        params.hasPaid,
+        params.paymentDate,
+        params.stripeCustomerId,
+        params.stripeSessionId,
+        userId,
+      ]);
+
+      if (result.rowCount === 0) {
+        throw new Error('User not found');
+      }
+    } catch (error: any) {
+      if (error.message === 'User not found') {
+        throw error;
+      }
+
+      console.error(`Error updating payment status for user ${userId}:`, error);
+      throw new Error('Failed to update payment status in database');
     }
   }
 }

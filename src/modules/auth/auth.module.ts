@@ -7,6 +7,8 @@ import { RefreshTokenUseCase } from '@application/use-cases/auth/refresh-token.u
 import { RegisterUseCase } from '@application/use-cases/auth/register.use-case';
 import { VerifyEmailUseCase } from '@application/use-cases/auth/verify-email.use-case';
 import { ResendVerificationUseCase } from '@application/use-cases/auth/resend-verification.use-case';
+import { RequestPasswordResetUseCase } from '@application/use-cases/auth/request-password-reset.use-case';
+import { ResetPasswordUseCase } from '@application/use-cases/auth/reset-password.use-case';
 import { JwtServiceImpl } from '@infrastructure/auth/jwt.service';
 import { JwtStrategy } from '@infrastructure/auth/strategies/jwt.strategy';
 import { JwtAuthGuard } from '@adapters/guards/jwt-auth.guard';
@@ -110,6 +112,8 @@ import { getJwtConfig } from '@infrastructure/auth/auth.config';
     RefreshTokenUseCase,
     VerifyEmailUseCase,
     ResendVerificationUseCase,
+    RequestPasswordResetUseCase,
+    ResetPasswordUseCase,
 
     // JWT Service: Implementación de generación/verificación de tokens
     {

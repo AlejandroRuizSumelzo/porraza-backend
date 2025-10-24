@@ -59,6 +59,13 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
   canActivate(
     context: ExecutionContext,
   ): boolean | Promise<boolean> | Observable<boolean> {
+    const request = context.switchToHttp().getRequest();
+
+    // Permitir peticiones OPTIONS (preflight CORS) sin autenticación
+    if (request.method === 'OPTIONS') {
+      return true;
+    }
+
     // Llamar a la implementación de AuthGuard('jwt')
     // Esto ejecuta JwtStrategy.validate()
     return super.canActivate(context);
