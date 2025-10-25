@@ -6,6 +6,7 @@ import { LeagueController } from '@adapters/controllers/league.controller';
 // Use Cases
 import { CreateLeagueUseCase } from '@application/use-cases/leagues/create-league.use-case';
 import { GetLeagueByIdUseCase } from '@application/use-cases/leagues/get-league-by-id.use-case';
+import { GetLeagueByCodeUseCase } from '@application/use-cases/leagues/get-league-by-code.use-case';
 import { GetAllLeaguesUseCase } from '@application/use-cases/leagues/get-all-leagues.use-case';
 import { GetPublicLeaguesUseCase } from '@application/use-cases/leagues/get-public-leagues.use-case';
 import { GetUserLeaguesUseCase } from '@application/use-cases/leagues/get-user-leagues.use-case';
@@ -67,6 +68,7 @@ import { LeagueRepository } from '@infrastructure/persistence/repositories/leagu
     // Use Cases: Se inyectan directamente por su clase
     CreateLeagueUseCase,
     GetLeagueByIdUseCase,
+    GetLeagueByCodeUseCase,
     GetAllLeaguesUseCase,
     GetPublicLeaguesUseCase,
     GetUserLeaguesUseCase,
@@ -88,6 +90,7 @@ import { LeagueRepository } from '@infrastructure/persistence/repositories/leagu
     // Exportar Use Cases si otros módulos necesitan usarlos
     // Por ejemplo, si un módulo de predicciones necesita validar ligas
     GetLeagueByIdUseCase,
+    GetLeagueByCodeUseCase,
     GetUserLeaguesUseCase,
     GetLeagueMembersUseCase,
     // Exportar el repositorio si otros módulos necesitan acceso directo

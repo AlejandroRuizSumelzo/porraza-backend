@@ -6,6 +6,8 @@ import {
   MaxLength,
   IsIn,
   IsOptional,
+  Matches,
+  Length,
 } from 'class-validator';
 
 /**
@@ -18,10 +20,11 @@ import {
  * - name: Nombre de la liga (3-100 caracteres)
  * - description: Descripción opcional
  * - type: 'public' o 'private'
+ * - code: Código único opcional (6-20 caracteres alfanuméricos mayúsculas)
  *
  * Notas:
  * - adminUserId se extrae del JWT (req.user.id)
- * - invite_code se genera automáticamente si type = 'private'
+ * - code se genera automáticamente si no se proporciona
  * - maxMembers tiene default 200 en BD
  */
 export class CreateLeagueDto {
@@ -60,4 +63,22 @@ export class CreateLeagueDto {
     message: 'Type must be either public or private',
   })
   type: 'public' | 'private';
+
+  @ApiProperty({
+    description:
+      'Custom league code (optional, 6-20 uppercase alphanumeric characters). If not provided, a random code will be generated.',
+    example: 'MUNDIAL2026',
+    required: false,
+    minLength: 6,
+    maxLength: 20,
+  })
+  @IsOptional()
+  @IsString()
+  @Length(6, 20, {
+    message: 'Code must be between 6 and 20 characters',
+  })
+  @Matches(/^[A-Z0-9]+$/, {
+    message: 'Code must contain only uppercase letters and numbers',
+  })
+  code?: string;
 }

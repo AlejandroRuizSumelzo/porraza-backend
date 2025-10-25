@@ -64,11 +64,10 @@ export class LeagueResponseDto {
 
   @ApiProperty({
     description:
-      'Invite code for private leagues (only visible to admin, null for non-admins and public leagues)',
-    example: 'XK7M9P2T',
-    nullable: true,
+      'Unique code for the league (both public and private leagues)',
+    example: 'PORRAZA2026',
   })
-  inviteCode: string | null;
+  code: string;
 
   @ApiProperty({
     description: 'Logo URL (S3 URL - future implementation)',
@@ -134,8 +133,8 @@ export class LeagueResponseDto {
     // Calcular si el usuario actual es miembro
     dto.isMember = isMember;
 
-    // Solo mostrar invite_code al admin
-    dto.inviteCode = dto.isAdmin ? league.inviteCode : null;
+    // Mostrar código siempre (todas las ligas tienen código)
+    dto.code = league.code;
 
     return dto;
   }

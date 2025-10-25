@@ -32,11 +32,11 @@ import { User, type UserDatabaseRow } from '@domain/entities/user.entity';
 @Injectable()
 export class LeagueRepository implements ILeagueRepository {
   /**
-   * Caracteres permitidos para códigos de invitación
+   * Caracteres permitidos para códigos de liga
    * Sin O, 0, I, 1 para evitar confusión visual
    */
-  private readonly INVITE_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  private readonly INVITE_CODE_LENGTH = 8;
+  private readonly CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  private readonly CODE_LENGTH = 8;
 
   constructor(
     @Inject('DATABASE_POOL')
@@ -48,26 +48,26 @@ export class LeagueRepository implements ILeagueRepository {
   // =========================================================================
 
   /**
-   * Genera un código de invitación único aleatorio
+   * Genera un código único aleatorio para una liga
    * Formato: 8 caracteres alfanuméricos (ej: XK7M9P2T)
    * Valida unicidad consultando la BD
    */
-  private async generateUniqueInviteCode(): Promise<string> {
+  private async generateUniqueCode(): Promise<string> {
     let attempts = 0;
     const maxAttempts = 10;
 
     while (attempts < maxAttempts) {
       // Generar código aleatorio
       let code = '';
-      for (let i = 0; i < this.INVITE_CODE_LENGTH; i++) {
+      for (let i = 0; i < this.CODE_LENGTH; i++) {
         const randomIndex = Math.floor(
-          Math.random() * this.INVITE_CODE_CHARS.length,
+          Math.random() * this.CODE_CHARS.length,
         );
-        code += this.INVITE_CODE_CHARS[randomIndex];
+        code += this.CODE_CHARS[randomIndex];
       }
 
       // Verificar si el código ya existe
-      const query = `SELECT EXISTS(SELECT 1 FROM leagues WHERE invite_code = $1) as exists`;
+      const query = `SELECT EXISTS(SELECT 1 FROM leagues WHERE code = $1) as exists`;
       const result = await this.pool.query(query, [code]);
 
       if (!result.rows[0].exists) {
@@ -78,7 +78,7 @@ export class LeagueRepository implements ILeagueRepository {
     }
 
     throw new Error(
-      'Failed to generate unique invite code after multiple attempts',
+      'Failed to generate unique code after multiple attempts',
     );
   }
 
@@ -98,7 +98,7 @@ export class LeagueRepository implements ILeagueRepository {
         type,
         admin_user_id,
         max_members,
-        invite_code,
+        code,
         logo_url,
         created_at,
         updated_at
@@ -135,7 +135,7 @@ export class LeagueRepository implements ILeagueRepository {
         type,
         admin_user_id,
         max_members,
-        invite_code,
+        code,
         logo_url,
         created_at,
         updated_at
@@ -166,7 +166,7 @@ export class LeagueRepository implements ILeagueRepository {
         type,
         admin_user_id,
         max_members,
-        invite_code,
+        code,
         logo_url,
         created_at,
         updated_at
@@ -198,7 +198,7 @@ export class LeagueRepository implements ILeagueRepository {
         l.type,
         l.admin_user_id,
         l.max_members,
-        l.invite_code,
+        l.code,
         l.logo_url,
         l.created_at,
         l.updated_at
@@ -222,9 +222,9 @@ export class LeagueRepository implements ILeagueRepository {
   }
 
   /**
-   * Busca una liga por su código de invitación
+   * Busca una liga por su código único
    */
-  async findByInviteCode(inviteCode: string): Promise<League | null> {
+  async findByCode(code: string): Promise<League | null> {
     const query = `
       SELECT
         id,
@@ -233,18 +233,18 @@ export class LeagueRepository implements ILeagueRepository {
         type,
         admin_user_id,
         max_members,
-        invite_code,
+        code,
         logo_url,
         created_at,
         updated_at
       FROM leagues
-      WHERE invite_code = $1
+      WHERE code = $1
     `;
 
     try {
       const result: QueryResult<LeagueDatabaseRow> = await this.pool.query(
         query,
-        [inviteCode.toUpperCase()], // Normalizar a mayúsculas
+        [code.toUpperCase()], // Normalizar a mayúsculas
       );
 
       if (result.rows.length === 0) {
@@ -254,10 +254,10 @@ export class LeagueRepository implements ILeagueRepository {
       return League.fromDatabase(result.rows[0]);
     } catch (error) {
       console.error(
-        `Error fetching league with invite code ${inviteCode}:`,
+        `Error fetching league with code ${code}:`,
         error,
       );
-      throw new Error('Failed to fetch league by invite code from database');
+      throw new Error('Failed to fetch league by code from database');
     }
   }
 
@@ -273,7 +273,7 @@ export class LeagueRepository implements ILeagueRepository {
         type,
         admin_user_id,
         max_members,
-        invite_code,
+        code,
         logo_url,
         created_at,
         updated_at
@@ -297,7 +297,7 @@ export class LeagueRepository implements ILeagueRepository {
 
   /**
    * Crea una nueva liga
-   * - Genera invite_code si type es 'private'
+   * - Genera código único si no se proporciona
    * - Agrega al admin como primer miembro automáticamente
    */
   async create(data: CreateLeagueData): Promise<League> {
@@ -306,13 +306,14 @@ export class LeagueRepository implements ILeagueRepository {
     try {
       await client.query('BEGIN');
 
-      // Generar invite_code si es liga privada
-      const inviteCode =
-        data.type === 'private' ? await this.generateUniqueInviteCode() : null;
+      // Generar código único si no se proporciona
+      const code = data.code
+        ? data.code.toUpperCase()
+        : await this.generateUniqueCode();
 
       // Insertar liga
       const insertLeagueQuery = `
-        INSERT INTO leagues (name, description, type, admin_user_id, max_members, invite_code)
+        INSERT INTO leagues (name, description, type, admin_user_id, max_members, code)
         VALUES ($1, $2, $3, $4, $5, $6)
         RETURNING
           id,
@@ -321,7 +322,7 @@ export class LeagueRepository implements ILeagueRepository {
           type,
           admin_user_id,
           max_members,
-          invite_code,
+          code,
           logo_url,
           created_at,
           updated_at
@@ -335,7 +336,7 @@ export class LeagueRepository implements ILeagueRepository {
           data.type,
           data.adminUserId,
           data.maxMembers || 200,
-          inviteCode,
+          code,
         ],
       );
 
@@ -363,6 +364,11 @@ export class LeagueRepository implements ILeagueRepository {
         throw new Error('Admin user does not exist');
       }
 
+      // Manejar error de código duplicado
+      if (error.code === '23505' && error.constraint === 'idx_leagues_code') {
+        throw new Error('League code already exists');
+      }
+
       console.error('Error creating league:', error);
       throw new Error('Failed to create league in database');
     } finally {
@@ -372,7 +378,7 @@ export class LeagueRepository implements ILeagueRepository {
 
   /**
    * Actualiza una liga existente
-   * - Si se cambia de 'public' a 'private', genera invite_code
+   * - El código NO se puede modificar
    */
   async update(id: string, data: UpdateLeagueData): Promise<League> {
     // Construir query dinámicamente según campos proporcionados
@@ -390,30 +396,18 @@ export class LeagueRepository implements ILeagueRepository {
       values.push(data.description?.trim() || null);
     }
 
+    if (data.type !== undefined) {
+      fields.push(`type = $${paramIndex++}`);
+      values.push(data.type);
+    }
+
     // Si no hay campos para actualizar, retornar liga sin cambios
-    if (fields.length === 0 && data.type === undefined) {
+    if (fields.length === 0) {
       const league = await this.findById(id);
       if (!league) {
         throw new Error('League not found');
       }
       return league;
-    }
-
-    // Manejar cambio de tipo (si pasa de public a private, generar invite_code)
-    let inviteCode: string | null = null;
-    if (data.type !== undefined) {
-      fields.push(`type = $${paramIndex++}`);
-      values.push(data.type);
-
-      // Si cambia a 'private', generar invite_code
-      if (data.type === 'private') {
-        const currentLeague = await this.findById(id);
-        if (currentLeague && !currentLeague.inviteCode) {
-          inviteCode = await this.generateUniqueInviteCode();
-          fields.push(`invite_code = $${paramIndex++}`);
-          values.push(inviteCode);
-        }
-      }
     }
 
     // Agregar id como último parámetro
@@ -430,7 +424,7 @@ export class LeagueRepository implements ILeagueRepository {
         type,
         admin_user_id,
         max_members,
-        invite_code,
+        code,
         logo_url,
         created_at,
         updated_at

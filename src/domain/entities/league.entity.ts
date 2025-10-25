@@ -8,7 +8,7 @@ export interface LeagueDatabaseRow {
   type: 'public' | 'private';
   admin_user_id: string;
   max_members: number;
-  invite_code: string | null;
+  code: string; // Código único para todas las ligas (públicas y privadas)
   logo_url: string | null;
   created_at: Date;
   updated_at: Date;
@@ -28,10 +28,12 @@ export interface LeagueDatabaseRow {
  *
  * Notas importantes:
  * - name debe tener al menos 3 caracteres y máximo 100
- * - type puede ser 'public' (cualquiera puede unirse) o 'private' (requiere invite_code)
+ * - type puede ser 'public' o 'private'
  * - admin_user_id es el UUID del usuario administrador (único admin por liga)
  * - max_members define el límite de usuarios permitidos (default 200, configurable en BD)
- * - invite_code es único y solo requerido para ligas privadas
+ * - code es un código único obligatorio para TODAS las ligas (públicas y privadas)
+ *   - Ligas públicas: pueden tener código amigable (ej: MUNDIAL26)
+ *   - Ligas privadas: código generado automáticamente (ej: XK7M9P2T)
  * - logo_url almacenará la URL de S3 del logo (implementación futura)
  */
 export class League {
@@ -42,7 +44,7 @@ export class League {
     public readonly type: 'public' | 'private',
     public readonly adminUserId: string,
     public readonly maxMembers: number,
-    public readonly inviteCode: string | null,
+    public readonly code: string,
     public readonly logoUrl: string | null,
     public readonly createdAt: Date,
     public readonly updatedAt: Date,
@@ -77,9 +79,19 @@ export class League {
       throw new Error('League type must be public or private');
     }
 
-    // Validar que ligas privadas tengan código de invitación
-    if (this.type === 'private' && !this.inviteCode) {
-      throw new Error('Private leagues must have an invite code');
+    // Validar que todas las ligas tengan código
+    if (!this.code || this.code.trim() === '') {
+      throw new Error('League code is required');
+    }
+
+    // Validar formato del código (alfanumérico mayúsculas)
+    if (!/^[A-Z0-9]+$/.test(this.code)) {
+      throw new Error('League code must contain only uppercase letters and numbers');
+    }
+
+    // Validar longitud del código
+    if (this.code.length < 6 || this.code.length > 20) {
+      throw new Error('League code must be between 6 and 20 characters');
     }
 
     // Validar admin user ID
@@ -105,7 +117,7 @@ export class League {
       data.type,
       data.admin_user_id,
       data.max_members,
-      data.invite_code,
+      data.code,
       data.logo_url,
       new Date(data.created_at),
       new Date(data.updated_at),
@@ -135,10 +147,17 @@ export class League {
   }
 
   /**
-   * Verifica si la liga requiere código de invitación para unirse
+   * Verifica si la liga es privada (requiere código para unirse)
    */
-  requiresInviteCode(): boolean {
+  requiresCode(): boolean {
     return this.type === 'private';
+  }
+
+  /**
+   * Obtiene el código de la liga
+   */
+  getCode(): string {
+    return this.code;
   }
 
   /**
@@ -173,7 +192,7 @@ export class League {
     type: 'public' | 'private';
     adminUserId: string;
     maxMembers: number;
-    inviteCode: string | null;
+    code: string;
     logoUrl: string | null;
     createdAt: Date;
     updatedAt: Date;
@@ -185,7 +204,7 @@ export class League {
       type: this.type,
       adminUserId: this.adminUserId,
       maxMembers: this.maxMembers,
-      inviteCode: this.inviteCode,
+      code: this.code,
       logoUrl: this.logoUrl,
       createdAt: this.createdAt,
       updatedAt: this.updatedAt,

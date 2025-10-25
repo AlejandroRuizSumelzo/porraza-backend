@@ -34,6 +34,7 @@ import { UserResponseDto } from '@adapters/dtos/user/user-response.dto';
 // Use Cases
 import { CreateLeagueUseCase } from '@application/use-cases/leagues/create-league.use-case';
 import { GetLeagueByIdUseCase } from '@application/use-cases/leagues/get-league-by-id.use-case';
+import { GetLeagueByCodeUseCase } from '@application/use-cases/leagues/get-league-by-code.use-case';
 import { GetAllLeaguesUseCase } from '@application/use-cases/leagues/get-all-leagues.use-case';
 import { GetPublicLeaguesUseCase } from '@application/use-cases/leagues/get-public-leagues.use-case';
 import { GetUserLeaguesUseCase } from '@application/use-cases/leagues/get-user-leagues.use-case';
@@ -70,6 +71,7 @@ interface RequestWithUser extends Request {
  * - GET    /leagues                        - Listar todas las ligas
  * - GET    /leagues/public                 - Listar ligas públicas
  * - GET    /leagues/my                     - Listar mis ligas
+ * - GET    /leagues/find/:code             - Obtener liga por código (públicas y privadas)
  * - GET    /leagues/:id                    - Obtener liga por ID
  * - PATCH  /leagues/:id                    - Actualizar liga (solo admin)
  * - DELETE /leagues/:id                    - Eliminar liga (solo admin)
@@ -91,6 +93,7 @@ export class LeagueController {
     private readonly leagueRepository: ILeagueRepository,
     private readonly createLeagueUseCase: CreateLeagueUseCase,
     private readonly getLeagueByIdUseCase: GetLeagueByIdUseCase,
+    private readonly getLeagueByCodeUseCase: GetLeagueByCodeUseCase,
     private readonly getAllLeaguesUseCase: GetAllLeaguesUseCase,
     private readonly getPublicLeaguesUseCase: GetPublicLeaguesUseCase,
     private readonly getUserLeaguesUseCase: GetUserLeaguesUseCase,
@@ -261,6 +264,39 @@ export class LeagueController {
   }
 
   /**
+   * GET /leagues/find/:code
+   * Obtener una liga por su código único (públicas y privadas)
+   */
+  @Get('find/:code')
+  @ApiOperation({
+    summary: 'Get league by code',
+    description:
+      'Retrieve detailed information about a league using its unique code. Works for both public and private leagues. Useful for deep linking and sharing leagues.',
+  })
+  @ApiParam({
+    name: 'code',
+    description: 'League unique code (6-20 alphanumeric characters, case-insensitive)',
+    example: 'PORRAZA2026',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'League found',
+    type: LeagueResponseDto,
+  })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 404, description: 'League not found or invalid code' })
+  async findByCode(
+    @Param('code') code: string,
+    @Req() req: RequestWithUser,
+  ): Promise<LeagueResponseDto> {
+    const league = await this.getLeagueByCodeUseCase.execute(code);
+    const isMember = await this.leagueRepository.isMember(league.id, req.user.id);
+    const memberCount = await this.leagueRepository.getMemberCount(league.id);
+
+    return LeagueResponseDto.fromEntity(league, req.user.id, isMember, memberCount);
+  }
+
+  /**
    * GET /leagues/:id
    * Obtener una liga por ID
    */
@@ -375,7 +411,7 @@ export class LeagueController {
     await this.joinLeagueUseCase.execute({
       leagueId: id,
       userId: req.user.id,
-      inviteCode: joinLeagueDto.inviteCode,
+      code: joinLeagueDto.code,
     });
 
     return { message: 'Successfully joined league' };

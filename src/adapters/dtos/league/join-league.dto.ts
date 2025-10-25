@@ -7,7 +7,7 @@ import { IsString, IsOptional, Length, Matches } from 'class-validator';
  * DTO para unirse a una liga.
  *
  * Campos:
- * - inviteCode: Código de invitación (opcional para públicas, requerido para privadas)
+ * - code: Código de la liga (opcional para públicas, requerido para privadas)
  *
  * Notas:
  * - leagueId se extrae de los params de la URL (:id)
@@ -17,17 +17,17 @@ import { IsString, IsOptional, Length, Matches } from 'class-validator';
 export class JoinLeagueDto {
   @ApiProperty({
     description:
-      'Invite code for private leagues (8 alphanumeric characters, optional for public leagues)',
-    example: 'XK7M9P2T',
+      'League code for private leagues (6-20 alphanumeric characters, optional for public leagues)',
+    example: 'PORRAZA2026',
     required: false,
-    minLength: 8,
-    maxLength: 8,
+    minLength: 6,
+    maxLength: 20,
   })
   @IsOptional()
   @IsString()
-  @Length(8, 8, { message: 'Invite code must be exactly 8 characters long' })
+  @Length(6, 20, { message: 'Code must be between 6 and 20 characters' })
   @Matches(/^[A-Z0-9]+$/, {
-    message: 'Invite code must contain only uppercase letters and numbers',
+    message: 'Code must contain only uppercase letters and numbers',
   })
-  inviteCode?: string;
+  code?: string;
 }

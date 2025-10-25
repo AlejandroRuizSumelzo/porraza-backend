@@ -4,7 +4,7 @@ import type { User } from '@domain/entities/user.entity';
 /**
  * Datos necesarios para crear una liga
  * No incluye id, created_at, updated_at (generados por BD)
- * invite_code se genera automáticamente para ligas privadas
+ * code se genera automáticamente si no se proporciona
  */
 export interface CreateLeagueData {
   name: string;
@@ -12,6 +12,7 @@ export interface CreateLeagueData {
   type: 'public' | 'private';
   adminUserId: string;
   maxMembers?: number; // Opcional, default 200 en BD
+  code?: string; // Opcional: si no se proporciona, se genera automáticamente
 }
 
 /**
@@ -76,12 +77,12 @@ export interface ILeagueRepository {
   findByUserId(userId: string): Promise<League[]>;
 
   /**
-   * Busca una liga por su código de invitación
-   * @param inviteCode - Código de invitación único
+   * Busca una liga por su código único
+   * @param code - Código único de la liga (públicas y privadas)
    * @returns League si existe, null si no se encuentra
-   * @note Solo aplica para ligas privadas
+   * @note Aplica para todas las ligas (públicas y privadas)
    */
-  findByInviteCode(inviteCode: string): Promise<League | null>;
+  findByCode(code: string): Promise<League | null>;
 
   /**
    * Obtiene todas las ligas administradas por un usuario
@@ -92,10 +93,10 @@ export interface ILeagueRepository {
 
   /**
    * Crea una nueva liga en la base de datos
-   * @param data - Datos de la liga (name, description, type, adminUserId)
+   * @param data - Datos de la liga (name, description, type, adminUserId, code opcional)
    * @returns Liga creada con id y timestamps generados
    * @throws Error si el adminUserId no existe
-   * @note Si type es 'private', se genera automáticamente un invite_code único
+   * @note Si no se proporciona 'code', se genera automáticamente un código único
    * @note El admin se agrega automáticamente como primer miembro
    */
   create(data: CreateLeagueData): Promise<League>;
@@ -107,7 +108,7 @@ export interface ILeagueRepository {
    * @returns Liga actualizada
    * @throws Error si la liga no existe
    * @note updated_at se actualiza automáticamente por trigger de BD
-   * @note Si se cambia de 'public' a 'private', se genera invite_code automáticamente
+   * @note El código no se puede modificar una vez creada la liga
    */
   update(id: string, data: UpdateLeagueData): Promise<League>;
 

@@ -15,7 +15,7 @@ import type { IUserRepository } from '@domain/repositories/user.repository.inter
 export interface JoinLeagueInput {
   leagueId: string;
   userId: string;
-  inviteCode?: string; // Solo requerido para ligas privadas
+  code?: string; // Solo requerido para ligas privadas
 }
 
 /**
@@ -110,20 +110,20 @@ export class JoinLeagueUseCase {
       );
     }
 
-    // 7. Si liga privada, validar código de invitación
+    // 7. Si liga privada, validar código
     if (league.isPrivate()) {
-      if (!input.inviteCode) {
+      if (!input.code) {
         throw new BadRequestException(
-          'Invite code is required for private leagues',
+          'Code is required for private leagues',
         );
       }
 
       // Normalizar códigos a mayúsculas para comparación
-      const normalizedInput = input.inviteCode.toUpperCase().trim();
-      const normalizedLeagueCode = league.inviteCode?.toUpperCase().trim();
+      const normalizedInput = input.code.toUpperCase().trim();
+      const normalizedLeagueCode = league.code.toUpperCase().trim();
 
       if (normalizedInput !== normalizedLeagueCode) {
-        throw new BadRequestException('Invalid invite code');
+        throw new BadRequestException('Invalid code');
       }
     }
 
