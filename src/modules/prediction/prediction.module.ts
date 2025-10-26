@@ -18,6 +18,7 @@ import { UpdateAwardsUseCase } from '@application/use-cases/predictions/update-a
 import { UpdateChampionUseCase } from '@application/use-cases/predictions/update-champion.use-case';
 import { GetLeagueRankingUseCase } from '@application/use-cases/predictions/get-league-ranking.use-case';
 import { GetPredictionStatsUseCase } from '@application/use-cases/predictions/get-prediction-stats.use-case';
+import { GetMatchesWithPredictionsUseCase } from '@application/use-cases/predictions/get-matches-with-predictions.use-case';
 
 // Repositories
 import { PlayerRepository } from '@infrastructure/persistence/repositories/player.repository';
@@ -127,7 +128,7 @@ import { BestThirdPlacePredictionRepository } from '@infrastructure/persistence/
     GetPlayersByTeamsUseCase, // Obtiene jugadores de múltiples equipos (batch)
 
     // ========================
-    // PREDICTION USE CASES (7)
+    // PREDICTION USE CASES (8)
     // ========================
     GetOrCreatePredictionUseCase, // Obtiene o crea predicción (auto-create)
     SaveGroupPredictionsUseCase, // Guarda 6 predicciones + calcula tabla
@@ -135,6 +136,7 @@ import { BestThirdPlacePredictionRepository } from '@infrastructure/persistence/
     UpdateChampionUseCase, // Actualiza equipo campeón
     GetLeagueRankingUseCase, // Obtiene ranking de liga (JOIN users)
     GetPredictionStatsUseCase, // Obtiene estadísticas de progreso
+    GetMatchesWithPredictionsUseCase, // Obtiene matches de grupos con predicciones
 
     // ========================
     // CALCULATION USE CASES (2) - Pure Business Logic

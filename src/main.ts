@@ -3,6 +3,7 @@ import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import cookieParser from 'cookie-parser';
+import compression from 'compression';
 
 async function bootstrap() {
   // IMPORTANTE: rawBody: true es NECESARIO para webhooks de Stripe
@@ -13,6 +14,25 @@ async function bootstrap() {
 
   // Enable cookie parser for handling HTTP-only cookies
   app.use(cookieParser());
+
+  // Enable gzip compression for responses
+  // Reduces response size by ~70% (especially useful for large JSON responses)
+  // Example: 200KB JSON → ~60KB with gzip
+  app.use(
+    compression({
+      filter: (req, res) => {
+        // Don't compress responses with this request header
+        if (req.headers['x-no-compression']) {
+          return false;
+        }
+        // Fallback to standard compression filter
+        return compression.filter(req, res);
+      },
+      // Compression level: 6 is a good balance between speed and compression ratio
+      // 0 = no compression, 9 = maximum compression (slower)
+      level: 6,
+    }),
+  );
 
   const allowedOrigins =
     process.env.ALLOWED_ORIGINS?.split(',')

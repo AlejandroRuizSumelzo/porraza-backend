@@ -3,6 +3,7 @@ import type { Pool, QueryResult } from 'pg';
 import type {
   IMatchRepository,
   MatchWithDetailsRow,
+  MatchWithBasicDetailsRow,
 } from '@domain/repositories/match.repository.interface';
 import { Match, type MatchDatabaseRow } from '@domain/entities/match.entity';
 
@@ -238,6 +239,129 @@ export class MatchRepository implements IMatchRepository {
     } catch (error) {
       console.error('Error fetching calendar with details:', error);
       throw new Error('Failed to fetch match calendar from database');
+    }
+  }
+
+  /**
+   * Obtiene todos los partidos de fase de grupos (GROUP_STAGE)
+   * Retorna 72 partidos ordenados por número de partido
+   */
+  async findGroupStageMatches(): Promise<Match[]> {
+    const query = `
+      SELECT
+        id,
+        match_number,
+        home_team_id,
+        away_team_id,
+        home_team_placeholder,
+        away_team_placeholder,
+        stadium_id,
+        group_id,
+        phase,
+        match_date,
+        match_time,
+        home_score,
+        away_score,
+        home_score_et,
+        away_score_et,
+        home_penalties,
+        away_penalties,
+        status,
+        predictions_locked_at,
+        depends_on_match_ids,
+        created_at,
+        updated_at
+      FROM matches
+      WHERE phase = 'GROUP_STAGE'
+      ORDER BY match_number ASC
+    `;
+
+    try {
+      const result: QueryResult<MatchDatabaseRow> = await this.pool.query(
+        query,
+      );
+
+      return result.rows.map((row) => Match.fromDatabase(row));
+    } catch (error) {
+      console.error('Error fetching group stage matches:', error);
+      throw new Error('Failed to fetch group stage matches from database');
+    }
+  }
+
+  /**
+   * Obtiene todos los partidos de fase de grupos con información completa
+   * Incluye JOINs con teams (home/away), stadium y group
+   * Optimizado para el endpoint de predicciones
+   * Retorna 72 partidos con todos los detalles necesarios para renderizar
+   */
+  async findGroupStageMatchesWithDetails(): Promise<
+    MatchWithBasicDetailsRow[]
+  > {
+    const query = `
+      SELECT
+        -- Match basic data
+        m.id AS match_id,
+        m.match_number,
+        m.phase,
+        m.match_date,
+        m.match_time,
+        m.status,
+        m.home_score,
+        m.away_score,
+        m.home_score_et,
+        m.away_score_et,
+        m.home_penalties,
+        m.away_penalties,
+        m.predictions_locked_at,
+        m.home_team_placeholder,
+        m.away_team_placeholder,
+        m.depends_on_match_ids,
+        m.created_at,
+        m.updated_at,
+
+        -- Home team (basic fields only)
+        ht.id AS home_team_id,
+        ht.name AS home_team_name,
+        ht.fifa_code AS home_team_fifa_code,
+        ht.confederation AS home_team_confederation,
+
+        -- Away team (basic fields only)
+        at.id AS away_team_id,
+        at.name AS away_team_name,
+        at.fifa_code AS away_team_fifa_code,
+        at.confederation AS away_team_confederation,
+
+        -- Stadium (basic fields only)
+        s.id AS stadium_id,
+        s.code AS stadium_code,
+        s.name AS stadium_name,
+        s.city AS stadium_city,
+        s.country AS stadium_country,
+        s.capacity AS stadium_capacity,
+
+        -- Group (basic fields only)
+        g.id AS group_id,
+        g.name AS group_name
+
+      FROM matches m
+      INNER JOIN teams ht ON m.home_team_id = ht.id
+      INNER JOIN teams at ON m.away_team_id = at.id
+      INNER JOIN stadiums s ON m.stadium_id = s.id
+      LEFT JOIN groups g ON m.group_id = g.id
+      WHERE m.phase = 'GROUP_STAGE'
+      ORDER BY m.match_number ASC
+    `;
+
+    try {
+      const result: QueryResult<MatchWithBasicDetailsRow> =
+        await this.pool.query(query);
+
+      return result.rows;
+    } catch (error) {
+      console.error('Error fetching group stage matches with details:', error);
+      throw new Error(
+        'Failed to fetch group stage matches with details from database',
+      );
     }
   }
 }

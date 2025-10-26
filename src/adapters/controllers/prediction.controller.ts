@@ -24,6 +24,7 @@ import { UpdateAwardsUseCase } from '@application/use-cases/predictions/update-a
 import { UpdateChampionUseCase } from '@application/use-cases/predictions/update-champion.use-case';
 import { GetLeagueRankingUseCase } from '@application/use-cases/predictions/get-league-ranking.use-case';
 import { GetPredictionStatsUseCase } from '@application/use-cases/predictions/get-prediction-stats.use-case';
+import { GetMatchesWithPredictionsUseCase } from '@application/use-cases/predictions/get-matches-with-predictions.use-case';
 import { SaveGroupPredictionsDto } from '@adapters/dtos/prediction/save-group-predictions.dto';
 import { UpdateAwardsDto } from '@adapters/dtos/prediction/update-awards.dto';
 import { UpdateChampionDto } from '@adapters/dtos/prediction/update-champion.dto';
@@ -33,6 +34,7 @@ import {
   LeagueRankingItemDto,
 } from '@adapters/dtos/prediction/league-ranking-response.dto';
 import { PredictionStatsResponseDto } from '@adapters/dtos/prediction/prediction-stats-response.dto';
+import { MatchWithPredictionDto } from '@adapters/dtos/prediction/match-with-prediction.dto';
 
 /**
  * PredictionController (Adapters Layer)
@@ -79,35 +81,40 @@ export class PredictionController {
     private readonly updateChampionUseCase: UpdateChampionUseCase,
     private readonly getLeagueRankingUseCase: GetLeagueRankingUseCase,
     private readonly getPredictionStatsUseCase: GetPredictionStatsUseCase,
+    private readonly getMatchesWithPredictionsUseCase: GetMatchesWithPredictionsUseCase,
   ) {}
 
   /**
    * GET /predictions/league/:leagueId
    *
    * Obtiene o crea la predicción del usuario para una liga.
-   * También retorna el ranking completo de la liga.
+   * También retorna el ranking completo de la liga y todos los partidos de fase de grupos con predicciones.
    *
    * Flujo:
    * 1. Extrae userId del JWT
    * 2. Busca predicción existente (userId + leagueId)
    * 3. Si no existe, la crea automáticamente
    * 4. Obtiene ranking de la liga
-   * 5. Retorna predicción + ranking
+   * 5. Obtiene todos los partidos de fase de grupos (72)
+   * 6. Obtiene predicciones del usuario para esos partidos
+   * 7. Combina matches con predicciones (0-0 si no existe predicción)
+   * 8. Retorna predicción + ranking + matches
    *
    * Casos de uso:
    * - Usuario accede por primera vez a predicciones de una liga
    * - Usuario consulta su predicción existente
    * - Frontend muestra tabla de clasificación de la liga
+   * - Frontend muestra formularios de predicción pre-poblados (0-0 por defecto)
    *
    * @param leagueId - UUID de la liga
    * @param req - Request con usuario autenticado (JWT)
-   * @returns Predicción del usuario + ranking de la liga
+   * @returns Predicción del usuario + ranking de la liga + matches con predicciones
    */
   @Get('league/:leagueId')
   @ApiOperation({
-    summary: 'Get or create prediction for league',
+    summary: 'Get or create prediction for league with matches',
     description:
-      'Retrieves user prediction for a league (auto-creates if not exists) and returns league ranking',
+      'Retrieves user prediction for a league (auto-creates if not exists), league ranking, and all group stage matches with user predictions (initialized to 0-0 if not created)',
   })
   @ApiParam({
     name: 'leagueId',
@@ -117,7 +124,8 @@ export class PredictionController {
   })
   @ApiResponse({
     status: 200,
-    description: 'Prediction and ranking retrieved successfully',
+    description:
+      'Prediction, ranking, and matches with predictions retrieved successfully',
     schema: {
       properties: {
         prediction: { type: 'object' },
@@ -127,6 +135,18 @@ export class PredictionController {
             leagueId: { type: 'string' },
             ranking: { type: 'array' },
             totalParticipants: { type: 'number' },
+          },
+        },
+        matches: {
+          type: 'array',
+          description:
+            'All group stage matches (72) with user predictions (0-0 if not created)',
+          items: {
+            type: 'object',
+            properties: {
+              match: { type: 'object' },
+              userPrediction: { type: 'object' },
+            },
           },
         },
       },
@@ -156,12 +176,18 @@ export class PredictionController {
       leagueId,
     );
 
-    // 2. Obtener ranking de la liga
-    const rankingData = await this.getLeagueRankingUseCase.execute(leagueId);
+    // 2. Ejecutar queries en paralelo para mejor performance
+    const [rankingData, matchesWithPredictions] = await Promise.all([
+      this.getLeagueRankingUseCase.execute(leagueId),
+      this.getMatchesWithPredictionsUseCase.execute(prediction.id),
+    ]);
 
     // 3. Transformar a DTOs
+
+    // 3.1. Predicción
     const predictionDto = PredictionResponseDto.fromEntity(prediction);
 
+    // 3.2. Ranking
     const rankingItems: LeagueRankingItemDto[] = rankingData.map((item) => ({
       prediction: PredictionResponseDto.fromEntity(item.prediction),
       user: {
@@ -178,9 +204,16 @@ export class PredictionController {
       totalParticipants: rankingItems.length,
     };
 
+    // 3.3. Matches con predicciones enriquecidos (con teams, stadium, group)
+    const matchesDto = MatchWithPredictionDto.fromDatabaseRows(
+      matchesWithPredictions.matchRows,
+      matchesWithPredictions.matchPredictions,
+    );
+
     return {
       prediction: predictionDto,
       ranking: rankingDto,
+      matches: matchesDto,
     };
   }
 
