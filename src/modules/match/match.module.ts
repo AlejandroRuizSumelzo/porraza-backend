@@ -74,6 +74,9 @@ import { MatchRepository } from '@infrastructure/persistence/repositories/match.
      */
   ],
   exports: [
+    // Exportar el repositorio para que otros módulos puedan usarlo
+    // IMPORTANTE: Exportado para que PredictionModule pueda usarlo en SaveGroupPredictionsUseCase
+    'IMatchRepository',
     // Si otros módulos necesitan usar los Use Cases, exportarlos aquí
     // GetAllMatchesUseCase,
     // GetMatchByIdUseCase,

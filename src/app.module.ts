@@ -9,6 +9,7 @@ import { UserModule } from '@modules/user/user.module';
 import { AuthModule } from '@modules/auth/auth.module';
 import { PaymentModule } from '@modules/payment/payment.module';
 import { LeagueModule } from '@modules/league/league.module';
+import { PredictionModule } from '@modules/prediction/prediction.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { LeagueModule } from '@modules/league/league.module';
     AuthModule, // Módulo de autenticación JWT
     PaymentModule, // Módulo de pagos con Stripe
     LeagueModule, // Módulo de funcionalidad de ligas
+    PredictionModule, // Módulo de sistema de predicciones del Mundial 2026
   ],
   controllers: [AppController],
   providers: [AppService],

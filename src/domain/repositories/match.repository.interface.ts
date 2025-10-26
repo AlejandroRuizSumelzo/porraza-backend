@@ -50,5 +50,6 @@ export interface MatchWithDetailsRow {
 export interface IMatchRepository {
   findAll(): Promise<Match[]>;
   findById(id: string): Promise<Match | null>;
+  findByIds(ids: string[]): Promise<Match[]>;
   findCalendarWithDetails(): Promise<MatchWithDetailsRow[]>;
 }

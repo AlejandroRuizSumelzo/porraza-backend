@@ -122,6 +122,59 @@ export class MatchRepository implements IMatchRepository {
   }
 
   /**
+   * Busca múltiples partidos por sus IDs
+   */
+  async findByIds(ids: string[]): Promise<Match[]> {
+    if (ids.length === 0) {
+      return [];
+    }
+
+    const query = `
+      SELECT
+        id,
+        match_number,
+        home_team_id,
+        away_team_id,
+        home_team_placeholder,
+        away_team_placeholder,
+        stadium_id,
+        group_id,
+        phase,
+        match_date,
+        match_time,
+        home_score,
+        away_score,
+        home_score_et,
+        away_score_et,
+        home_penalties,
+        away_penalties,
+        status,
+        predictions_locked_at,
+        depends_on_match_ids,
+        created_at,
+        updated_at
+      FROM matches
+      WHERE id = ANY($1)
+      ORDER BY match_number ASC
+    `;
+
+    try {
+      const result: QueryResult<MatchDatabaseRow> = await this.pool.query(
+        query,
+        [ids],
+      );
+
+      return result.rows.map((row) => Match.fromDatabase(row));
+    } catch (error) {
+      console.error(
+        `Error fetching matches with ids ${ids.join(', ')}:`,
+        error,
+      );
+      throw new Error('Failed to fetch matches by IDs from database');
+    }
+  }
+
+  /**
    * Obtiene todos los partidos con información completa de equipos y estadio
    * Esta query hace JOIN con las tablas teams, stadiums y groups para obtener
    * toda la información necesaria para el calendario en una sola consulta

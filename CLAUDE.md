@@ -1172,6 +1172,814 @@ export type CreateUserData = { /* ... */ };
 - **Stripe Embedded Checkout**: https://docs.stripe.com/checkout/embedded
 - **Resend API**: https://resend.com/docs
 
+## Sistema de Predicciones (Core Business)
+
+**Núcleo principal de Porraza**: Los usuarios predicen resultados del Mundial 2026, compitiendo en ligas con sistema de puntuación en tiempo real.
+
+### Arquitectura del Sistema
+
+```
+User → League (1:N) → Prediction (1:1 por user-league)
+                         ├── Match Predictions (partidos)
+                         ├── Group Standings (tablas de grupo)
+                         ├── Best Third Places (mejores terceros)
+                         ├── Awards (Golden Boot/Ball/Glove)
+                         └── Champion (campeón predicho)
+```
+
+### Reglas de Negocio Clave
+
+**1. Una predicción por usuario por liga**
+- Usuario puede estar en múltiples ligas
+- Cada liga tiene una predicción independiente
+- Constraint: `UNIQUE (user_id, league_id)` en tabla `predictions`
+
+**2. Deadline global**
+- Las predicciones se bloquean **1 hora antes del primer partido** (partido inaugural)
+- Fecha: 11 junio 2026, 19:00 (1h antes del kickoff a las 20:00)
+- Campo: `predictions.is_locked = TRUE`, `predictions.locked_at`
+- No se pueden editar predicciones después del deadline
+
+**3. Flujo de predicción**
+```
+1. Usuario predice FASE DE GRUPOS (grupos A-L)
+   → Backend calcula automáticamente tabla de posiciones por grupo
+   → Backend calcula los 8 mejores terceros
+   → Frontend habilita fase eliminatorias
+
+2. Usuario predice ELIMINATORIAS (R32 → R16 → QF → SF → Final)
+   → Backend valida que equipos coincidan con clasificados predichos
+   → Usuario predice resultado 90', prórroga, penaltis
+
+3. Usuario selecciona PREMIOS INDIVIDUALES
+   → Golden Boot (máximo goleador)
+   → Golden Ball (mejor jugador)
+   → Golden Glove (mejor portero)
+
+4. Usuario selecciona CAMPEÓN
+
+5. Predicción completa → Esperando resultados reales
+```
+
+**4. Cálculo de tablas de grupo (FIFA World Cup 2026)**
+
+Mundial 2026 tiene **12 grupos de 4 equipos** (48 equipos totales).
+
+**Clasifican a Round of 32:**
+- 1º y 2º de cada grupo (24 equipos)
+- Los 8 mejores terceros lugares (8 equipos)
+- **Total**: 32 equipos pasan a eliminatorias
+
+**Criterios de desempate FIFA (simplificados para v1):**
+
+En cada grupo, los equipos se ordenan por:
+1. **Puntos** (Victoria 3, Empate 1, Derrota 0)
+2. **Diferencia de goles** (GF - GC)
+3. **Goles a favor** (GF)
+4. ⚠️ **Si empate total**: Backend marca `has_tiebreak_conflict = TRUE`, usuario puede ordenar manualmente
+
+Para los **mejores terceros**, se crea tabla general con los 12 terceros y se ordenan por:
+1. Puntos
+2. Diferencia de goles
+3. Goles a favor
+4. ⚠️ Si empate total: Backend marca conflicto, usuario ordena manualmente
+
+**Nota**: En v1 NO implementamos tarjetas (fair play) ni FIFA ranking. Estos criterios se añadirán en v2.
+
+### Base de Datos - Predicciones
+
+#### players
+
+```sql
+CREATE TABLE players (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name VARCHAR(150) NOT NULL,
+  team_id UUID NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+  position VARCHAR(20) NOT NULL CHECK (position IN ('goalkeeper', 'defender', 'midfielder', 'forward')),
+  jersey_number INTEGER CHECK (jersey_number >= 1 AND jersey_number <= 99),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+- **48 equipos × 23 jugadores = 1,104 jugadores**
+- Seed automático con nombres placeholder (ej: "ARG Goalkeeper 1")
+- Admin actualiza nombres reales después del sorteo
+- `position` determina elegibilidad para premios (goalkeepers → Golden Glove)
+
+#### predictions
+
+```sql
+CREATE TABLE predictions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  league_id UUID NOT NULL REFERENCES leagues(id) ON DELETE CASCADE,
+
+  -- Premios individuales
+  golden_boot_player_id UUID NULL REFERENCES players(id),
+  golden_ball_player_id UUID NULL REFERENCES players(id),
+  golden_glove_player_id UUID NULL REFERENCES players(id),
+
+  -- Campeón
+  champion_team_id UUID NULL REFERENCES teams(id),
+
+  -- Estado de completitud
+  groups_completed BOOLEAN DEFAULT FALSE,
+  knockouts_completed BOOLEAN DEFAULT FALSE,
+  awards_completed BOOLEAN DEFAULT FALSE,
+
+  -- Control de deadline
+  is_locked BOOLEAN DEFAULT FALSE,
+  locked_at TIMESTAMPTZ NULL,
+
+  -- Puntuación acumulada (cache)
+  total_points INTEGER DEFAULT 0,
+  last_points_calculation TIMESTAMPTZ NULL,
+
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+
+  CONSTRAINT predictions_user_league_unique UNIQUE (user_id, league_id)
+);
+```
+
+**Estados de predicción:**
+- `draft` - Recién creada, sin predicciones
+- `in_progress` - Algunos grupos completados
+- `complete` - Grupos + eliminatorias + premios + campeón
+- `locked_incomplete` - Deadline pasó, no completó todo
+- `locked_complete` - Deadline pasó, predicción completa
+
+#### match_predictions
+
+```sql
+CREATE TABLE match_predictions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  prediction_id UUID NOT NULL REFERENCES predictions(id) ON DELETE CASCADE,
+  match_id UUID NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
+
+  -- Predicción del resultado (90 minutos)
+  home_score INTEGER NOT NULL CHECK (home_score >= 0),
+  away_score INTEGER NOT NULL CHECK (away_score >= 0),
+
+  -- Para eliminatorias (nullable)
+  home_score_et INTEGER NULL CHECK (home_score_et >= 0),
+  away_score_et INTEGER NULL CHECK (away_score_et >= 0),
+  penalties_winner VARCHAR(4) NULL CHECK (penalties_winner IN ('home', 'away')),
+
+  -- Puntos obtenidos (calculado después del partido real)
+  points_earned INTEGER DEFAULT 0,
+  points_breakdown JSONB DEFAULT '{}',
+
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+
+  CONSTRAINT match_predictions_unique UNIQUE (prediction_id, match_id)
+);
+```
+
+**Reglas de validación:**
+- `home_score_et` y `away_score_et` solo si `home_score == away_score` (empate en 90')
+- `penalties_winner` solo si empate después de prórroga
+- `points_breakdown` almacena detalle: `{ exactResult: 3, correct1X2: 1, phaseBonus: 5 }`
+
+#### group_standings_predictions
+
+```sql
+CREATE TABLE group_standings_predictions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  prediction_id UUID NOT NULL REFERENCES predictions(id) ON DELETE CASCADE,
+  group_id UUID NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+  team_id UUID NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+
+  -- Posición predicha (1-4)
+  position INTEGER NOT NULL CHECK (position >= 1 AND position <= 4),
+
+  -- Estadísticas calculadas automáticamente por backend
+  points INTEGER DEFAULT 0,
+  played INTEGER DEFAULT 0,
+  wins INTEGER DEFAULT 0,
+  draws INTEGER DEFAULT 0,
+  losses INTEGER DEFAULT 0,
+  goals_for INTEGER DEFAULT 0,
+  goals_against INTEGER DEFAULT 0,
+  goal_difference INTEGER DEFAULT 0,
+
+  -- FLAGS DE DESEMPATE
+  has_tiebreak_conflict BOOLEAN DEFAULT FALSE,
+  tiebreak_group INTEGER NULL,  -- Agrupa equipos empatados (1, 2, 3...)
+  manual_tiebreak_order INTEGER NULL,  -- Orden manual del usuario (1, 2, 3, 4)
+
+  -- Puntos obtenidos si acertó la posición
+  points_earned INTEGER DEFAULT 0,
+
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+
+  CONSTRAINT group_standings_predictions_unique UNIQUE (prediction_id, group_id, team_id),
+  CONSTRAINT group_standings_predictions_position_unique UNIQUE (prediction_id, group_id, position)
+);
+```
+
+**Cálculo automático:**
+- Backend recibe `match_predictions` de un grupo
+- Calcula tabla de posiciones según reglas FIFA
+- Si detecta empate total (puntos, DG, GF): marca `has_tiebreak_conflict = TRUE`
+- Frontend muestra mensaje: "⚠️ España y Argentina están empatados. ¿Ajustar orden?"
+- Usuario puede arrastrar equipos para ordenar manualmente
+- Backend actualiza `manual_tiebreak_order` (1 = primero, 2 = segundo, etc.)
+
+#### best_third_places_predictions
+
+```sql
+CREATE TABLE best_third_places_predictions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  prediction_id UUID NOT NULL REFERENCES predictions(id) ON DELETE CASCADE,
+  team_id UUID NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+
+  -- Ranking de mejores terceros (1-8)
+  ranking_position INTEGER NOT NULL CHECK (ranking_position >= 1 AND ranking_position <= 8),
+
+  -- Estadísticas (copiadas de group_standings_predictions)
+  points INTEGER NOT NULL,
+  goal_difference INTEGER NOT NULL,
+  goals_for INTEGER NOT NULL,
+  from_group_id UUID NOT NULL REFERENCES groups(id),
+
+  -- Flag de desempate (mismo concepto que group_standings)
+  has_tiebreak_conflict BOOLEAN DEFAULT FALSE,
+  tiebreak_group INTEGER NULL,
+  manual_tiebreak_order INTEGER NULL,
+
+  -- Puntos obtenidos si acertó que este equipo clasifica
+  points_earned INTEGER DEFAULT 0,
+
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+
+  CONSTRAINT best_third_places_predictions_unique UNIQUE (prediction_id, team_id),
+  CONSTRAINT best_third_places_predictions_ranking_unique UNIQUE (prediction_id, ranking_position)
+);
+```
+
+**Cálculo automático:**
+- Backend detecta que los 12 grupos están completos
+- Extrae los 12 terceros de `group_standings_predictions`
+- Ordena por: puntos → DG → GF
+- Toma los 8 primeros
+- Si hay empates totales: marca `has_tiebreak_conflict = TRUE`
+- Guarda en esta tabla los 8 mejores terceros
+
+#### group_standings_actual & best_third_places_actual
+
+```sql
+-- Tabla de posiciones REALES de cada grupo
+CREATE TABLE group_standings_actual (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  group_id UUID NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+  team_id UUID NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+  position INTEGER NOT NULL CHECK (position >= 1 AND position <= 4),
+  points INTEGER NOT NULL,
+  played INTEGER NOT NULL,
+  wins INTEGER NOT NULL,
+  draws INTEGER NOT NULL,
+  losses INTEGER NOT NULL,
+  goals_for INTEGER NOT NULL,
+  goals_against INTEGER NOT NULL,
+  goal_difference INTEGER NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  CONSTRAINT group_standings_actual_unique UNIQUE (group_id, team_id),
+  CONSTRAINT group_standings_actual_position_unique UNIQUE (group_id, position)
+);
+
+-- Los 8 mejores terceros REALES
+CREATE TABLE best_third_places_actual (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  team_id UUID NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+  ranking_position INTEGER NOT NULL CHECK (ranking_position >= 1 AND ranking_position <= 8),
+  points INTEGER NOT NULL,
+  goal_difference INTEGER NOT NULL,
+  goals_for INTEGER NOT NULL,
+  from_group_id UUID NOT NULL REFERENCES groups(id),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  CONSTRAINT best_third_places_actual_unique UNIQUE (team_id),
+  CONSTRAINT best_third_places_actual_ranking_unique UNIQUE (ranking_position)
+);
+```
+
+**Uso:**
+- El admin actualiza estas tablas manualmente cuando finaliza cada grupo
+- Backend usa estas tablas para calcular puntos:
+  - Compara `group_standings_predictions` vs `group_standings_actual`
+  - Compara `best_third_places_predictions` vs `best_third_places_actual`
+  - Actualiza `points_earned` en cada registro
+
+### Sistema de Puntuación
+
+```typescript
+export const POINTS_SYSTEM = {
+  // FASE DE GRUPOS
+  GROUP_EXACT_RESULT: 3,           // Resultado exacto (2-1)
+  GROUP_CORRECT_1X2: 1,            // Acierto en victoria/empate/derrota (no marcador)
+  GROUP_POSITION_EXACT: 3,         // Posición exacta en grupo (1º o 2º)
+  GROUP_POSITION_QUALIFIED: 1,     // Equipo clasificó pero en otra posición
+
+  // ELIMINATORIAS
+  KNOCKOUT_EXACT_RESULT_90: 5,     // Resultado exacto en 90'
+  KNOCKOUT_CORRECT_WINNER_90: 2,   // Ganador correcto en 90'
+  KNOCKOUT_EXACT_RESULT_ET: 8,     // Resultado exacto en prórroga
+  KNOCKOUT_CORRECT_WINNER_ET: 3,   // Ganador correcto en prórroga
+  KNOCKOUT_CORRECT_PENALTIES: 4,   // Ganador correcto en penaltis
+
+  // PROGRESO EN TORNEO (acumulativo)
+  ROUND_OF_32_QUALIFIER: 5,        // Acertó que pasa a R32
+  ROUND_OF_16_QUALIFIER: 10,       // Acertó que pasa a R16 (octavos)
+  QUARTER_FINALIST: 15,            // Acertó cuartos
+  SEMI_FINALIST: 25,               // Acertó semifinales
+  FINALIST: 40,                    // Acertó finalista
+  CHAMPION: 80,                    // Acertó campeón
+
+  // PREMIOS INDIVIDUALES
+  GOLDEN_BOOT: 50,                 // Máximo goleador
+  GOLDEN_BALL: 50,                 // Mejor jugador
+  GOLDEN_GLOVE: 50,                // Mejor portero
+} as const;
+```
+
+**Ejemplo de puntuación acumulativa:**
+- Usuario predice: Brasil campeón
+- Brasil llega a final y gana
+- Puntos ganados: 5 (R32) + 10 (R16) + 15 (QF) + 25 (SF) + 40 (Finalist) + 80 (Champion) = **175 puntos**
+
+**Ejemplo fase de grupos:**
+- Predicción: España 2-1 Argentina
+- Real: España 2-1 Argentina
+- Puntos: 3 (resultado exacto) + 1 (acierto 1X2) = **4 puntos**
+
+- Predicción: Brasil 3-0 Ecuador
+- Real: Brasil 2-0 Ecuador
+- Puntos: 1 (acierto victoria, pero no marcador exacto) = **1 punto**
+
+### Entidades del Dominio - Predicciones
+
+**Nuevas entidades añadidas:**
+
+```typescript
+// Player - Jugadores de selecciones (src/domain/entities/player.entity.ts)
+export class Player {
+  constructor(
+    public readonly id: string,
+    public readonly name: string,
+    public readonly teamId: string,
+    public readonly position: PlayerPosition,
+    public readonly jerseyNumber: number,
+    // ...
+  ) {}
+
+  isGoalkeeper(): boolean
+  canBeGoldenGlove(): boolean
+  getDisplayName(): string  // "#10 Lionel Messi"
+}
+
+// Prediction - Predicción principal (src/domain/entities/prediction.entity.ts)
+export class Prediction {
+  constructor(
+    public readonly id: string,
+    public readonly userId: string,
+    public readonly leagueId: string,
+    public readonly goldenBootPlayerId: string | null,
+    public readonly goldenBallPlayerId: string | null,
+    public readonly goldenGlovePlayerId: string | null,
+    public readonly championTeamId: string | null,
+    public readonly groupsCompleted: boolean,
+    public readonly knockoutsCompleted: boolean,
+    public readonly awardsCompleted: boolean,
+    public readonly isLocked: boolean,
+    public readonly totalPoints: number,
+    // ...
+  ) {}
+
+  canBeEdited(): boolean
+  isComplete(): boolean
+  getCompletionPercentage(): number  // 0-100
+  getStatus(): 'draft' | 'in_progress' | 'complete' | 'locked_incomplete' | 'locked_complete'
+}
+
+// MatchPrediction - Predicción de partido (src/domain/entities/match-prediction.entity.ts)
+export class MatchPrediction {
+  constructor(
+    public readonly id: string,
+    public readonly predictionId: string,
+    public readonly matchId: string,
+    public readonly homeScore: number,
+    public readonly awayScore: number,
+    public readonly homeScoreET: number | null,
+    public readonly awayScoreET: number | null,
+    public readonly penaltiesWinner: 'home' | 'away' | null,
+    public readonly pointsEarned: number,
+    public readonly pointsBreakdown: PointsBreakdown,
+    // ...
+  ) {}
+
+  isDraw(): boolean
+  hasExtraTime(): boolean
+  hasPenalties(): boolean
+  getWinner90(): 'home' | 'away' | 'draw'
+  getFinalWinner(): 'home' | 'away' | 'draw'
+  getScoreDisplay(): string  // "2-1 (3-2 ET) [Home on pens]"
+}
+
+// GroupStandingPrediction - Tabla de grupo predicha (src/domain/entities/group-standing-prediction.entity.ts)
+export class GroupStandingPrediction {
+  constructor(
+    public readonly id: string,
+    public readonly predictionId: string,
+    public readonly groupId: string,
+    public readonly teamId: string,
+    public readonly position: number,
+    public readonly points: number,
+    public readonly played: number,
+    public readonly wins: number,
+    public readonly draws: number,
+    public readonly losses: number,
+    public readonly goalsFor: number,
+    public readonly goalsAgainst: number,
+    public readonly goalDifference: number,
+    public readonly hasTiebreakConflict: boolean,
+    public readonly tiebreakGroup: number | null,
+    public readonly manualTiebreakOrder: number | null,
+    // ...
+  ) {}
+
+  qualifiesAsFirstOrSecond(): boolean
+  isThirdPlace(): boolean
+  hasConflict(): boolean
+  compareByFIFACriteria(other: GroupStandingPrediction): number
+}
+
+// BestThirdPlacePrediction - Mejores terceros predichos (src/domain/entities/best-third-place-prediction.entity.ts)
+export class BestThirdPlacePrediction {
+  constructor(
+    public readonly id: string,
+    public readonly predictionId: string,
+    public readonly teamId: string,
+    public readonly rankingPosition: number,
+    public readonly points: number,
+    public readonly goalDifference: number,
+    public readonly goalsFor: number,
+    public readonly fromGroupId: string,
+    public readonly hasTiebreakConflict: boolean,
+    // ...
+  ) {}
+
+  qualifiesToRound32(): boolean
+  hasConflict(): boolean
+  compareByFIFACriteria(other: BestThirdPlacePrediction): number
+}
+```
+
+### Repositorios - Predicciones
+
+**IPlayerRepository** (`src/domain/repositories/player.repository.interface.ts`)
+```typescript
+export interface IPlayerRepository {
+  findById(id: string): Promise<Player | null>;
+  findByTeam(teamId: string): Promise<Player[]>;
+  findByFilters(filters: PlayerFilters): Promise<Player[]>;
+  findAllGoalkeepers(): Promise<Player[]>;
+  findGoalkeepersByTeams(teamIds: string[]): Promise<Player[]>;
+  findAll(): Promise<Player[]>;
+  findByTeams(teamIds: string[]): Promise<Player[]>;
+  exists(id: string): Promise<boolean>;
+}
+```
+
+**IPredictionRepository** (`src/domain/repositories/prediction.repository.interface.ts`)
+```typescript
+export interface IPredictionRepository {
+  // PREDICTION (Principal) - 13 métodos
+  findById(id: string): Promise<Prediction | null>;
+  findByUserAndLeague(userId: string, leagueId: string): Promise<Prediction | null>;
+  findByUser(userId: string): Promise<Prediction[]>;
+  findByLeague(leagueId: string): Promise<Prediction[]>;
+  create(data: CreatePredictionData): Promise<Prediction>;
+  updateAwards(id: string, data: UpdateAwardsData): Promise<Prediction>;
+  updateChampion(id: string, data: UpdateChampionData): Promise<Prediction>;
+  markGroupsCompleted(id: string): Promise<Prediction>;
+  markKnockoutsCompleted(id: string): Promise<Prediction>;
+  markAwardsCompleted(id: string): Promise<Prediction>;
+  lock(id: string): Promise<Prediction>;
+  updateTotalPoints(id: string, points: number): Promise<Prediction>;
+  exists(userId: string, leagueId: string): Promise<boolean>;
+
+  // MATCH PREDICTIONS - 7 métodos
+  saveMatchPredictions(predictionId: string, matchPredictions: SaveMatchPredictionData[]): Promise<MatchPrediction[]>;
+  findMatchPredictions(predictionId: string): Promise<MatchPrediction[]>;
+  findMatchPredictionsByGroup(predictionId: string, groupId: string): Promise<MatchPrediction[]>;
+  findMatchPrediction(predictionId: string, matchId: string): Promise<MatchPrediction | null>;
+  updateMatchPredictionPoints(id: string, pointsEarned: number, pointsBreakdown: any): Promise<void>;
+
+  // GROUP STANDINGS PREDICTIONS - 6 métodos
+  saveGroupStandings(predictionId: string, standings: SaveGroupStandingData[]): Promise<GroupStandingPrediction[]>;
+  findGroupStandings(predictionId: string, groupId: string): Promise<GroupStandingPrediction[]>;
+  findAllGroupStandings(predictionId: string): Promise<GroupStandingPrediction[]>;
+  updateTiebreakOrder(predictionId: string, groupId: string, tiebreaks: ResolveTiebreakData[]): Promise<void>;
+  updateGroupStandingPoints(id: string, pointsEarned: number): Promise<void>;
+
+  // BEST THIRD PLACES PREDICTIONS - 4 métodos
+  saveBestThirdPlaces(predictionId: string, bestThirds: SaveBestThirdPlaceData[]): Promise<BestThirdPlacePrediction[]>;
+  findBestThirdPlaces(predictionId: string): Promise<BestThirdPlacePrediction[]>;
+  updateBestThirdPlacesTiebreak(predictionId: string, tiebreaks: ResolveTiebreakData[]): Promise<void>;
+  updateBestThirdPlacePoints(id: string, pointsEarned: number): Promise<void>;
+
+  // RANKINGS Y ESTADÍSTICAS - 2 métodos
+  getLeagueRanking(leagueId: string): Promise<Array<{prediction: Prediction; user: {...}; position: number}>>;
+  getPredictionStats(predictionId: string): Promise<{...}>;
+}
+```
+
+**Total: 36 métodos** en IPredictionRepository
+
+### Use Cases - Predicciones (Próximos a implementar)
+
+**Player Use Cases:**
+- `get-players-by-team.use-case.ts` - Obtener 23 jugadores de un equipo
+- `get-all-goalkeepers.use-case.ts` - Porteros para Golden Glove
+- `get-players-by-teams.use-case.ts` - Jugadores de equipos clasificados
+
+**Prediction Use Cases:**
+- `create-prediction.use-case.ts` - Crear predicción (auto al acceder a liga)
+- `get-or-create-prediction.use-case.ts` - Obtener o crear si no existe
+- `save-group-predictions.use-case.ts` - Guardar predicciones de un grupo
+- `calculate-group-standings.use-case.ts` - Calcular tabla de posiciones
+- `calculate-best-third-places.use-case.ts` - Calcular mejores terceros
+- `save-knockout-predictions.use-case.ts` - Guardar eliminatorias
+- `update-awards.use-case.ts` - Actualizar premios individuales
+- `update-champion.use-case.ts` - Actualizar campeón
+- `resolve-tiebreak.use-case.ts` - Resolver desempate manual
+- `get-prediction-by-user-and-league.use-case.ts` - Obtener predicción
+- `get-league-ranking.use-case.ts` - Ranking de liga
+- `calculate-points.use-case.ts` - Calcular puntos (job/trigger)
+- `lock-predictions.use-case.ts` - Bloquear cuando pasa deadline
+
+### API Endpoints - Predicciones (Próximos a implementar)
+
+```typescript
+// PredictionController
+GET    /predictions/league/:leagueId              // Obtener predicción del usuario en liga
+POST   /predictions/league/:leagueId/groups/:groupId  // Guardar predicciones de grupo
+GET    /predictions/league/:leagueId/groups/:groupId  // Obtener predicciones de grupo
+PATCH  /predictions/:id/groups/:groupId/tiebreaks     // Resolver desempate
+POST   /predictions/:id/knockouts                     // Guardar eliminatorias
+PATCH  /predictions/:id/awards                        // Actualizar premios
+PATCH  /predictions/:id/champion                      // Actualizar campeón
+GET    /predictions/:id/stats                         // Estadísticas de predicción
+
+// PlayerController
+GET    /players/team/:teamId                      // Jugadores de un equipo
+GET    /players/goalkeepers                       // Todos los porteros
+
+// LeagueController (nuevos endpoints)
+GET    /leagues/:leagueId/ranking                 // Ranking de liga
+GET    /leagues/:leagueId/predictions             // Todas las predicciones de la liga
+```
+
+### Flujo Completo - Ejemplo Real
+
+**Escenario**: Usuario "Alex" predice en liga "Mundial Familia"
+
+**1. Usuario accede a predicciones de la liga**
+```
+GET /predictions/league/:leagueId
+
+Backend:
+- Busca predicción de Alex en esta liga
+- Si no existe → Crea automáticamente (CreatePredictionUseCase)
+- Retorna predicción vacía (draft)
+```
+
+**2. Usuario predice Grupo A**
+```
+POST /predictions/league/:leagueId/groups/A
+Body: {
+  matchPredictions: [
+    { matchId: "uuid1", homeScore: 2, awayScore: 1 },  // MEX vs NZL
+    { matchId: "uuid2", homeScore: 1, awayScore: 1 },  // URU vs EGY
+    // ... 6 partidos del grupo
+  ]
+}
+
+Backend (SaveGroupPredictionsUseCase):
+1. Valida que predicción no esté bloqueada
+2. Guarda match_predictions (batch INSERT)
+3. Calcula tabla de posiciones:
+   - MEX: 3 pts (victoria), GD +1, GF 2
+   - URU: 1 pt (empate), GD 0, GF 1
+   - EGY: 1 pt (empate), GD 0, GF 1
+   - NZL: 0 pts (derrota), GD -1, GF 1
+4. Ordena por: puntos → DG → GF
+5. Detecta empate entre URU y EGY
+6. Marca: has_tiebreak_conflict = TRUE, tiebreak_group = 1
+7. Guarda group_standings_predictions
+8. Retorna:
+   {
+     standings: [...],
+     tiebreakConflicts: [
+       { teams: ["URU", "EGY"], group: "A" }
+     ]
+   }
+
+Frontend:
+- Muestra tabla de posiciones
+- Muestra mensaje: "⚠️ Uruguay y Egipto están empatados. ¿Deseas ajustar el orden?"
+- Usuario arrastra equipos o deja orden actual
+- Si ajusta: PATCH /predictions/:id/groups/A/tiebreaks
+```
+
+**3. Usuario completa todos los grupos (A-L)**
+```
+Backend (automático cuando se completa Grupo L):
+1. Marca predictions.groups_completed = TRUE
+2. Extrae 12 terceros de group_standings_predictions
+3. Ordena por: puntos → DG → GF
+4. Toma los 8 mejores
+5. Guarda best_third_places_predictions
+6. Retorna clasificados a R32:
+   - 24 primeros/segundos de grupos
+   - 8 mejores terceros
+
+Frontend:
+- Habilita fase eliminatorias
+- Muestra bracket con los 32 clasificados
+```
+
+**4. Usuario predice eliminatorias**
+```
+POST /predictions/:id/knockouts
+Body: {
+  roundOf32: [
+    { matchId: "uuid", homeScore: 2, awayScore: 2, homeScoreET: 3, awayScoreET: 2 },  // Prórroga
+    { matchId: "uuid", homeScore: 1, awayScore: 1, homeScoreET: 2, awayScoreET: 2, penaltiesWinner: "home" },  // Penaltis
+    // ... 16 partidos R32
+  ],
+  roundOf16: [...],
+  quarters: [...],
+  semis: [...],
+  final: { matchId: "uuid", homeScore: 3, awayScore: 1 },
+  championTeamId: "uuid-brasil"
+}
+
+Backend (SaveKnockoutPredictionsUseCase):
+1. Valida que grupos estén completos
+2. Valida que equipos en R32 coincidan con clasificados predichos
+3. Guarda match_predictions para todas las eliminatorias
+4. Actualiza predictions.champion_team_id
+5. Marca predictions.knockouts_completed = TRUE
+```
+
+**5. Usuario selecciona premios**
+```
+PATCH /predictions/:id/awards
+Body: {
+  goldenBootPlayerId: "uuid-messi",
+  goldenBallPlayerId: "uuid-mbappe",
+  goldenGlovePlayerId: "uuid-alisson"
+}
+
+Backend:
+1. Valida que players existan
+2. Valida que Golden Glove sea portero
+3. Actualiza predictions
+4. Marca predictions.awards_completed = TRUE
+```
+
+**6. Predicción completa**
+```
+predictions.isComplete() = TRUE
+- groups_completed: TRUE
+- knockouts_completed: TRUE
+- awards_completed: TRUE
+- champion_team_id: "uuid-brasil"
+
+Estado: 'complete' (esperando deadline y resultados reales)
+```
+
+**7. Deadline pasa (11 junio 2026, 19:00)**
+```
+Job/Cron ejecuta: LockPredictionsUseCase
+
+Backend:
+- Busca todas las predictions donde is_locked = FALSE
+- Actualiza predictions.is_locked = TRUE, predictions.locked_at = NOW()
+- Retorna: X predicciones bloqueadas
+
+Usuario intenta editar después del deadline:
+- canBeEdited() = FALSE
+- Frontend: "Predicciones bloqueadas. El torneo ya comenzó."
+```
+
+**8. Partidos finalizan + Cálculo de puntos**
+```
+Admin actualiza: matches.status = 'FINISHED', scores, etc.
+
+Job/Trigger ejecuta: CalculatePointsUseCase
+
+Backend (por cada predicción):
+1. Compara match_predictions vs matches (resultados reales)
+2. Calcula puntos según POINTS_SYSTEM
+3. Actualiza match_predictions.points_earned
+4. Compara group_standings_predictions vs group_standings_actual
+5. Actualiza group_standings_predictions.points_earned
+6. Suma total de puntos
+7. Actualiza predictions.total_points
+8. Actualiza predictions.last_points_calculation
+
+GET /leagues/:leagueId/ranking
+Backend:
+- Obtiene todas las predictions de la liga
+- Ordena por total_points DESC
+- Retorna ranking con posición, usuario, puntos
+```
+
+### Módulo NestJS - Predictions
+
+**PredictionModule** (próximo a implementar)
+```typescript
+@Module({
+  imports: [
+    DatabaseModule,
+    MatchModule,    // Para validar match_ids
+    TeamModule,     // Para validar team_ids
+  ],
+  controllers: [
+    PredictionController,
+    PlayerController,
+  ],
+  providers: [
+    // Player Use Cases
+    GetPlayersByTeamUseCase,
+    GetAllGoalkeepersUseCase,
+
+    // Prediction Use Cases
+    CreatePredictionUseCase,
+    GetOrCreatePredictionUseCase,
+    SaveGroupPredictionsUseCase,
+    CalculateGroupStandingsUseCase,
+    CalculateBestThirdPlacesUseCase,
+    SaveKnockoutPredictionsUseCase,
+    UpdateAwardsUseCase,
+    UpdateChampionUseCase,
+    ResolveTiebreakUseCase,
+    GetPredictionByUserAndLeagueUseCase,
+    GetLeagueRankingUseCase,
+    CalculatePointsUseCase,
+    LockPredictionsUseCase,
+
+    // Repositories
+    {
+      provide: 'IPlayerRepository',
+      useClass: PlayerRepository,
+    },
+    {
+      provide: 'IPredictionRepository',
+      useClass: PredictionRepository,
+    },
+  ],
+  exports: [
+    'IPlayerRepository',
+    'IPredictionRepository',
+    GetPredictionByUserAndLeagueUseCase,
+    GetLeagueRankingUseCase,
+  ],
+})
+export class PredictionModule {}
+```
+
+### Archivos Creados
+
+**SQL Migration:**
+- `predictions_system.sql` - Schema completo (7 tablas + seed de 1104 jugadores)
+
+**Entidades del Dominio:**
+- `src/domain/entities/player.entity.ts`
+- `src/domain/entities/prediction.entity.ts`
+- `src/domain/entities/match-prediction.entity.ts`
+- `src/domain/entities/group-standing-prediction.entity.ts`
+- `src/domain/entities/best-third-place-prediction.entity.ts`
+
+**Interfaces de Repositorios:**
+- `src/domain/repositories/player.repository.interface.ts`
+- `src/domain/repositories/prediction.repository.interface.ts`
+
+**Próximos pasos (Opción A - Implementación completa):**
+- Repositorios concretos (SQL)
+- Use Cases
+- DTOs
+- Controllers
+- Módulos NestJS
+
 ## Documentación Complementaria
 
 - `DEPLOYMENT.md` - Guía completa de deployment
@@ -1179,3 +1987,4 @@ export type CreateUserData = { /* ... */ };
 - `DATABASE-BACKUP.md` - Backup y restore de PostgreSQL
 - `HTTPS-SETUP.md` - Configuración SSL/TLS
 - `SETUP-GUIDE.md` - Setup inicial del proyecto
+- `predictions_system.sql` - Migration completa del sistema de predicciones
