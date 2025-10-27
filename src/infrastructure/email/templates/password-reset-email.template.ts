@@ -13,6 +13,12 @@ export function getPasswordResetEmailTemplate(
   resetUrl: string,
 ): string {
   const currentYear = new Date().getFullYear();
+  const requestDate = new Date().toLocaleString('es-ES', {
+    timeZone: 'Europe/Madrid',
+    dateStyle: 'full',
+    timeStyle: 'short',
+  });
+  const expirationWindow = '1 hora';
 
   return `
     <!DOCTYPE html>
@@ -24,191 +30,347 @@ export function getPasswordResetEmailTemplate(
         <style>
           :root {
             color-scheme: light only;
+            --font-sans: 'Inter', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+            --background: #f5f7fb;
+            --foreground: #0f172a;
+            --muted: #f1f5f9;
+            --muted-foreground: #64748b;
+            --card: #ffffff;
+            --border: #e2e8f0;
+            --brand-primary: #2a398d;
+            --brand-secondary: #3cac3b;
+            --brand-accent: #f59e0b;
+            --danger-soft: #fef3c7;
+            --danger-strong: #92400e;
+            --info-soft: #f0f9ff;
+            --info-strong: #1e40af;
+            --radius-lg: 20px;
           }
           body {
             margin: 0;
             padding: 0;
-            background-color: #f3f4f8;
-            font-family: 'Poppins', 'Segoe UI', sans-serif;
-            color: #1f2937;
+            background-color: var(--background);
+            font-family: var(--font-sans);
+            color: var(--foreground);
           }
           table {
             border-collapse: collapse;
           }
           a {
-            color: #2a398d;
+            color: var(--brand-primary);
+            text-decoration: none;
           }
-          .container {
+          .email-viewport {
             width: 100%;
-            padding: 24px 0;
+            background-color: var(--background);
+          }
+          .viewport-cell {
+            padding: 32px 16px;
           }
           .email-card {
-            width: 600px;
-            max-width: 600px;
-            background-color: #ffffff;
-            border-radius: 16px;
+            width: 100%;
+            max-width: 620px;
+            background-color: var(--card);
+            border-radius: var(--radius-lg);
             overflow: hidden;
-            box-shadow: 0 16px 40px rgba(17, 24, 39, 0.12);
+            border: 1px solid rgba(42, 57, 141, 0.08);
+            box-shadow: 0 32px 60px -24px rgba(15, 23, 42, 0.35);
           }
           .header {
-            background: linear-gradient(135deg, #2a398d 0%, #3cac3b 100%);
-            padding: 48px 40px 40px;
+            padding: 40px 44px;
+            background: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-secondary) 100%);
+            color: #ffffff;
             text-align: left;
           }
+          .brand-logo {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 70px;
+            height: 70px;
+            border-radius: 20px;
+            background: rgba(255, 255, 255, 0.12);
+            border: 1px solid rgba(255, 255, 255, 0.28);
+            margin-bottom: 18px;
+          }
+          .brand-logo svg {
+            display: block;
+            width: 52px;
+            height: 52px;
+          }
+          .brand-badge {
+            display: inline-block;
+            padding: 6px 14px;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 255, 255, 0.35);
+            background: rgba(255, 255, 255, 0.14);
+            font-size: 12px;
+            letter-spacing: 0.12em;
+            font-weight: 600;
+            text-transform: uppercase;
+          }
+          .header-chip {
+            display: inline-block;
+            margin-top: 18px;
+            padding: 6px 12px;
+            border-radius: 999px;
+            background: rgba(245, 158, 11, 0.22);
+            border: 1px solid rgba(245, 158, 11, 0.45);
+            color: #fff7ed;
+            font-size: 13px;
+            font-weight: 600;
+            letter-spacing: 0.04em;
+          }
           .header-title {
-            margin: 0;
-            font-size: 28px;
+            margin: 20px 0 10px;
+            font-size: 30px;
             font-weight: 700;
             letter-spacing: -0.02em;
-            color: #ffffff;
           }
           .header-subtitle {
-            margin: 12px 0 0;
-            font-size: 16px;
-            font-weight: 400;
-            color: rgba(255, 255, 255, 0.92);
+            margin: 0;
+            font-size: 15px;
+            line-height: 1.6;
+            color: rgba(255, 255, 255, 0.82);
           }
           .content {
-            padding: 40px;
-          }
-          .content h2 {
-            margin: 0 0 16px;
-            font-size: 24px;
-            font-weight: 600;
-            color: #1f2937;
+            padding: 40px 44px;
+            background-color: var(--card);
           }
           .content p {
             margin: 0 0 20px;
-            font-size: 16px;
-            line-height: 1.65;
-            color: #4b5563;
+            font-size: 15px;
+            line-height: 1.7;
+            color: var(--foreground);
           }
-          .warning-box {
-            background-color: #fef3c7;
-            border-left: 4px solid #f59e0b;
-            border-radius: 8px;
-            padding: 20px 24px;
-            margin: 24px 0;
+          .meta-grid {
+            width: 100%;
+            margin: 28px 0 32px;
+            border-collapse: separate;
+            border-spacing: 0;
           }
-          .warning-box p {
+          .meta-grid td {
+            width: 50%;
+            padding: 0;
+            vertical-align: top;
+          }
+          .meta-grid td:first-child {
+            padding-right: 12px;
+          }
+          .meta-grid td:last-child {
+            padding-left: 12px;
+          }
+          .meta-card {
+            background-color: var(--muted);
+            border-radius: 16px;
+            border: 1px solid rgba(42, 57, 141, 0.16);
+            padding: 18px 20px;
+          }
+          .meta-label {
+            margin: 0 0 6px;
+            font-size: 12px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            font-weight: 600;
+            color: #475569;
+          }
+          .meta-value {
             margin: 0;
             font-size: 15px;
-            font-weight: 500;
-            color: #92400e;
+            font-weight: 600;
+            color: var(--foreground);
+          }
+          .meta-pill {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 999px;
+            background: rgba(245, 158, 11, 0.16);
+            color: var(--brand-accent);
+            font-weight: 600;
+            font-size: 13px;
+            letter-spacing: 0.02em;
+          }
+          .callout {
+            border-radius: 18px;
+            border: 1px solid transparent;
+            padding: 24px 26px;
+            margin: 0 0 28px;
+          }
+          .callout-title {
+            margin: 0 0 10px;
+            font-size: 16px;
+            font-weight: 600;
+          }
+          .callout-text {
+            margin: 0;
+            font-size: 14px;
+            line-height: 1.6;
+          }
+          .callout-warning {
+            background: var(--danger-soft);
+            border-color: rgba(245, 158, 11, 0.45);
+            color: var(--danger-strong);
+          }
+          .callout-info {
+            background: var(--info-soft);
+            border-color: rgba(42, 57, 141, 0.18);
+            color: var(--info-strong);
           }
           .cta-wrapper {
             text-align: center;
-            padding: 32px 0 16px;
+            margin: 32px 0 12px;
           }
           .cta-button {
             display: inline-block;
-            background-color: #2a398d;
+            background: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-secondary) 100%);
             color: #ffffff !important;
             text-decoration: none;
-            padding: 16px 36px;
+            padding: 14px 36px;
             border-radius: 999px;
-            font-size: 16px;
+            font-size: 15px;
             font-weight: 600;
-            letter-spacing: 0.01em;
+            letter-spacing: 0.02em;
+            box-shadow: 0 18px 36px -18px rgba(42, 57, 141, 0.55);
           }
-          .security-notice {
-            background-color: #f0f9ff;
-            border-radius: 12px;
-            padding: 24px;
-            margin: 32px 0;
-            border: 1px solid rgba(42, 57, 141, 0.08);
-          }
-          .security-notice p {
-            margin: 0 0 8px;
-            font-size: 14px;
-            color: #1e40af;
-          }
-          .security-notice p:last-child {
-            margin-bottom: 0;
-          }
-          .footer-card {
-            margin-top: 16px;
-            padding: 32px 40px;
-            background-color: #f9fafb;
-            text-align: center;
-            border-top: 1px solid #e5e7eb;
-          }
-          .footer-card p {
-            margin: 0 0 12px;
+          .body-small {
             font-size: 13px;
-            color: #6b7280;
+            color: var(--muted-foreground);
+            text-align: center;
+            margin-top: 16px;
+          }
+          .link-block {
+            margin-top: 32px;
+            font-size: 13px;
+            line-height: 1.6;
+            color: var(--muted-foreground);
+            word-break: break-all;
+          }
+          .footer {
+            padding: 32px 40px;
+            background: var(--muted);
+            border-top: 1px solid var(--border);
+            text-align: center;
+          }
+          .footer p {
+            margin: 0 0 12px;
+            font-size: 12px;
+            line-height: 1.6;
+            color: var(--muted-foreground);
+          }
+          .footer-logo {
+            display: inline-block;
+            margin-bottom: 14px;
+          }
+          .footer-logo svg {
+            display: block;
+            width: 42px;
+            height: 42px;
           }
           .footer-links {
-            margin-top: 20px;
-            font-size: 13px;
-            color: #9ca3af;
+            margin-top: 18px;
+            font-size: 12px;
+            color: var(--muted-foreground);
           }
           .footer-links a {
-            color: #2a398d;
-            text-decoration: none;
-            margin: 0 8px;
+            color: var(--brand-primary);
+            font-weight: 600;
+            margin: 0 6px;
           }
           @media only screen and (max-width: 640px) {
-            .email-card {
-              width: 100% !important;
-              border-radius: 0;
+            .viewport-cell {
+              padding: 20px 12px;
             }
             .header,
             .content,
-            .footer-card {
+            .footer {
               padding-left: 24px !important;
               padding-right: 24px !important;
+            }
+            .meta-grid td {
+              display: block;
+              width: 100%;
+              padding: 0 !important;
+            }
+            .meta-grid td + td .meta-card {
+              margin-top: 12px;
+            }
+            .meta-card {
+              width: 100%;
             }
           }
         </style>
       </head>
       <body>
-        <table role="presentation" width="100%" class="container" cellpadding="0" cellspacing="0" align="center">
+        <table role="presentation" width="100%" class="email-viewport" cellpadding="0" cellspacing="0" align="center">
           <tr>
-            <td align="center">
+            <td align="center" class="viewport-cell">
               <table role="presentation" class="email-card" cellpadding="0" cellspacing="0">
                 <tr>
                   <td class="header">
-                    <p class="header-title">Porraza</p>
-                    <p class="header-subtitle">Recupera el acceso a tu cuenta</p>
+                    <div class="brand-logo" role="presentation">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512"><path d="m236 225 3 29c19.96-3.16 37-9.3 55.19-18 1-.47 1-.47 2.01-.96 1.8-.85 3.58-1.72 5.37-2.59 10.24-4.32 19.05-4.14 29.43-.45 28.42 12.14 44.29 32.65 62 57 .71.96.71.96 1.43 1.94 2.4 3.31 4.52 6.61 6.38 10.25 2.12 4.02 4.46 7.63 7.13 11.31 11.67 17.42 15 39.94 19.25 60.08.17.81.34 1.63.52 2.46.3 1.44.6 2.89.87 4.33 1.46 7.05 4.36 12.8 9.17 18.13 6.76 8.2 13.81 19.55 13.25 30.5-1.31 1.73-1.31 1.73-3 3-7.42.15-11.8-4.04-16.96-8.81-2.95-2.88-5.71-5.77-8.04-9.19l-2 7c-1.75.75-1.75.75-4 1-4.02-2.56-5.2-6.34-6.44-10.73-.57-3.31-.67-6.39-.71-9.74-.17-11.09-2.98-19.55-7.53-29.59-1.5-3.35-2.95-6.73-4.38-10.11-2.52-5.95-5.05-11.89-7.64-17.81-.8-1.86-1.58-3.73-2.32-5.61-2.24-5.53-5.09-9.21-9.42-13.29-.56-.55-1.12-1.1-1.69-1.67-3.1-3.01-6.12-5.28-9.87-7.45a71 71 0 0 1-3.44-3.5c-3.7-3.8-7.66-7.14-11.81-10.44q-.9-.72-1.83-1.47c-4.05-3.26-4.05-3.26-8.92-4.59-3.08 1.02-3.08 1.02-6.41 2.65-1.3.59-2.6 1.19-3.9 1.78-1.02.48-1.02.48-2.07.96-35 16.17-84.67 35.11-123.62 23.61-14.27-5.34-24.73-16.42-35.19-27.06-1.05-1.07-2.11-2.14-3.17-3.2-2.55-2.58-5.1-5.16-7.64-7.74 1.27-4.21 2.84-7.67 5.2-11.38.62-1 1.25-1.99 1.9-3.02 1.37-2.14 2.74-4.28 4.12-6.41 4.22-6.48 4.22-6.48 7.74-13.34 3.72-7.94 8.46-10.56 16.35-13.6 3.08-1.1 6.18-2.14 9.29-3.15 3.63-1.17 7.23-2.41 10.84-3.65C233.3 225 233.3 225 236 225" fill="#1F903A"/><path d="m236 225 3 29 13-2c3-.07 6-.1 9 0 .5 1.98.5 1.98 1 4h5c.5 1.49.5 1.49 1 3h4c1.12 3.75 1.12 3.75 0 6 .4 2.1.4 2.1 1 4h-2l-2 4h-4v3c.93-.19 1.86-.37 2.81-.56C271 275 271 275 274 276l3-1-1-3h4c.5 2.97.5 2.97 1 6h2v2h2l1 3c-3.13 1.86-5.37 2.2-9 2 .57 3.93.57 3.93 3 7l3-2-4-2c1.69-1.06 1.69-1.06 4-2 .8.21 1.61.41 2.44.62 2.76.71 2.76.71 5.25-1.56 1.14-1.02 1.14-1.02 2.31-2.06h2v2c-2 1.62-2 1.62-4 3l1 3-5.37 3.03c-1.61.87-1.61.87-2.63 1.97 2.07.15 2.07.15 4-1v2c2-.58 2-.58 4-2 1.29-3.04 1.29-3.04 2-6 1.12 1.69 1.12 1.69 2 4-.75 3.42-1.47 4.66-4.44 6.56-.84.48-1.69.95-2.56 1.44-1.78 2.07-1.78 2.07-3 4v-3c-2.47.34-2.47.34-5 1l-1 2 5-1 1 2 3 1-1 4 4 2c-1 2-1 2-3.12 2.81-.93.25-1.86.51-2.82.78-1.05.29-2.09.57-3.17.87-1.14.3-2.28.6-3.45.92-1.76.46-1.76.46-3.55.93-24.86 6.42-56.08 13.95-79.92.54-9.91-6.16-18.03-14.65-26.16-22.91-1.05-1.07-2.11-2.14-3.17-3.2-2.55-2.58-5.1-5.16-7.64-7.74 1.27-4.21 2.84-7.67 5.2-11.38.62-1 1.25-1.99 1.9-3.02 1.37-2.14 2.74-4.28 4.12-6.41 4.22-6.48 4.22-6.48 7.74-13.34 3.72-7.94 8.46-10.56 16.35-13.6 3.08-1.1 6.18-2.14 9.29-3.15 3.63-1.17 7.23-2.41 10.84-3.65C233.3 225 233.3 225 236 225" fill="#1F903A"/><path d="M288.375 49.625c2.16 3.16 2.49 5.57 2.62 9.38-1.32 4.23-4.53 6-8.11 8.26-.61.4-1.23.79-1.86 1.2-1.96 1.27-3.93 2.53-5.9 3.78-1.29.83-2.57 1.66-3.86 2.49-.63.41-1.26.82-1.91 1.24l-3.81 2.46c-2.99 1.94-5.99 3.84-9.06 5.64-1.07.65-2.14 1.3-3.24 1.97-.95.55-1.89 1.1-2.86 1.67-6.1 5.84-6.46 16.22-7.83 24.17-.22 1.21-.43 2.43-.65 3.68-.68 3.85-1.36 7.7-2.03 11.56-.46 2.6-.92 5.2-1.38 7.79-3.43 19.45-4.85 37.11-3.85 56.83.41 8.43.44 16.82.35 25.26-.81.26-1.63.52-2.48.79-3.82 1.22-7.64 2.46-11.45 3.71-1.03.33-1.03.33-2.08.67-8.96 2.95-17.69 6.09-26.02 10.57-3.87 2.03-5.78 2.31-9.97 1.26 1.59-6.5 3.25-12.97 5.01-19.42.35-1.29.7-2.58 1.05-3.86.54-1.97 1.07-3.93 1.62-5.89 3.9-13.74 3.9-13.74 3.32-27.83-.22-3.3-.27-6.58-.31-9.88l-.09-2.55c-.18-19.59 9.5-38.44 16.65-56.25 7.65-18.42 7.65-18.42 8.82-38.01-.08-4.09.59-5.97 2.93-9.31 4.96-3.53 9.67-4.92 15.58-6.08.8-.16 1.61-.33 2.44-.5 2.55-.53 5.11-1.04 7.67-1.55 1.7-.35 3.4-.7 5.09-1.05 29.85-6.14 29.85-6.14 35.6-2.2M148 220c3.41 1.81 6.71 3.79 10 5.81.87.53 1.74 1.06 2.63 1.6 5.95 3.64 11.78 7.41 17.37 11.59-3.19 6.75-6.98 13.04-10.92 19.38-1.08 1.75-2.16 3.49-3.24 5.24-3.2 5.18-6.44 10.32-9.84 15.38-5.04-2.08-8.54-6.09-12.44-9.79-2.42-2.38-2.42-2.38-5.56-3.21-.1.84-.2 1.68-.3 2.55-3.28 16.15-16.12 30.19-26.08 42.71-.52.66-1.04 1.33-1.57 2.02-.96 1.23-1.94 2.45-2.94 3.65-2.45 3.17-3.41 5.33-2.96 9.25.58 2.62 1.18 5.22 1.85 7.82.24 2.18.24 2.18.31 4.44l.12 2.24c-.62 3.34-2.06 4.93-4.43 7.32-2.39 1.08-2.39 1.08-5.25 1.81-1.13.32-2.26.63-3.42.96-.66.18-1.32.36-2 .55-5 1.46-9.94 3.11-14.89 4.74l-3.21 1.03c-1.01.34-2.01.67-3.05 1.01-.9.29-1.8.59-2.73.89-2.52 1.04-4.28 2.38-6.45 4.01-2.7.61-5.21 1.05-7.94 1.38-1.05.16-1.05.16-2.13.32-3.45.43-5.66.42-8.87-.99C38 362 38 362 36.94 359.19c.1-5.28 3.21-8.34 6.84-11.98 1.05-.95 2.1-1.9 3.16-2.83 1.16-1.05 2.31-2.1 3.47-3.15l1.79-1.61c2.91-2.62 5.79-5.28 8.68-7.93l1.54-1.42c1.01-.93 2.02-1.87 3.02-2.81 1.07-1 2.17-1.96 3.29-2.9 5.43-4.79 7.77-10.39 10.38-17.05.79-2.01 1.59-4 2.41-6 .88-2.16 1.76-4.33 2.63-6.5 3.74-9.27 7.68-18.45 11.6-27.63 1.45-3.4 2.9-6.8 4.34-10.19.35-.81.69-1.61 1.04-2.44 1.95-4.57 3.88-9.16 5.78-13.75.4-.98.81-1.96 1.23-2.96.7-1.69 1.4-3.38 2.09-5.08 3.23-7.71 7.37-12.51 15.09-16.04 8.3-2.85 15.03-.44 22.68 3.08" fill="#163E86"/><path d="M380.672 65.984c9.31 7.99 14.25 16.27 15.61 28.59.37 10.09-2.91 18.67-9.28 26.43-6.43 6.86-14.38 11.44-23.85 12.23-12.26.29-21.62-3.05-30.71-11.36-7.64-7.84-9.79-16.94-9.82-27.52.22-10.2 4.24-18.14 11.26-25.45 12.94-11.67 32.56-13.49 46.79-2.92" fill="#ED282E"/><path d="M397 298c20.11 18.82 24.78 48.94 30.19 74.58.17.81.34 1.63.52 2.46.3 1.44.6 2.89.87 4.33 1.46 7.05 4.36 12.8 9.17 18.13 6.76 8.2 13.81 19.55 13.25 30.5-1.31 1.73-1.31 1.73-3 3-7.42.15-11.8-4.04-16.96-8.81-2.95-2.88-5.71-5.77-8.04-9.19l-2 7c-1.75.75-1.75.75-4 1-4.02-2.56-5.2-6.34-6.44-10.73-.57-3.31-.67-6.39-.71-9.74-.17-11.09-2.98-19.55-7.53-29.59-1.5-3.35-2.95-6.73-4.38-10.11-2.52-5.95-5.05-11.89-7.64-17.81-.8-1.86-1.58-3.73-2.32-5.61-2.25-5.58-5.16-9.25-9.54-13.35-.58-.56-1.16-1.12-1.75-1.7-2.49-2.41-4.8-4.43-7.69-6.36.84-.38 1.67-.77 2.54-1.16 3.94-2.1 7.35-4.58 10.9-7.28 4.7-3.56 9.38-6.73 14.56-9.56" fill="#173E86"/><path d="M384.25 181.688c7.12 5.83 12.09 13.08 13.07 22.32.33 9.21-1.26 17.5-7.07 24.87-6.52 6.84-14.2 10.12-23.62 10.43-9.66-.23-16.71-3.56-23.63-10.31-6.81-8.59-7.73-17.28-7-28 1.14-8.08 5.99-13.71 12-19 11.46-7.42 24.77-8.36 36.25-.31" fill="#163D86"/><path d="M335 320c2.43 1.16 4.51 2.3 6.75 3.75.58.35 1.15.7 1.75 1.05 2.36 1.49 4.3 2.94 6.04 5.15.89 3.94-1.64 6.81-3.59 10.11-9.16 13.79-22.71 21.29-36.64 29.48-4.83 2.87-9.33 5.86-13.75 9.34-8.02 6.24-17.38 10.86-27.56 12.12-.71.09-1.42.19-2.15.29-3.84.27-5.7-.19-8.91-2.35-1.94-2.94-1.94-2.94-2.13-6.19 2.81-8.87 8.81-15.27 16.19-20.75 4.57-2.29 9.27-2.34 14.32-2.56 14.43-2.37 30.63-25.05 39.49-35.88 3.26-3.82 5.25-4 10.19-3.56" fill="#173D85"/><path d="M363 176c4.16-.08 7.95.02 12 1-.99.5-.99.5-2 1-.15.93-.15.93-.31 1.88-.69 2.12-.69 2.12-3.13 3.93-.84.39-1.69.79-2.56 1.19l-2-1c1-2 1-2 4-4l-7-2z" fill="#345291"/><path d="M118 221c.91 3.08 1.08 5.79 1 9v3l-4-1v-4l-2-1z" fill="#2C4D8F"/><path d="M37 356h2c.21.78.41 1.57.62 2.38 1.19 2.93 1.19 2.93 4.5 3.93.95.23 1.9.46 2.88.69l-1 2c-2.81-.19-2.81-.19-6-1-2.28-2.89-3-4.3-3-8" fill="#475F99"/><path d="M220 66c2.56 3.79 2.03 7.41 1.62 11.75-.05.7-.11 1.39-.17 2.11-.14 1.72-.29 3.43-.45 5.14h-1c-1.31-5.91-1.32-11.97-1-18z" fill="#3B5491"/><path d="M374.625 315.813c2.38 1.19 2.38 1.19 3.38 3.19l3 2h-2c-.33.99-.67 1.98-1 3l-1.21-1.24-1.61-1.64-1.58-1.61c-1.74-1.72-1.74-1.72-4.6-3.51 3-1 3-1 5.62-.19" fill="#3B5A91"/><path d="m449 422 2 1-1 7-7 1v-2c1.88-1.06 1.88-1.06 4-2l2 1z" fill="#3F5692"/><path d="m340 223 6 2 1 7c-2.96-2.81-5.44-5.18-7-9" fill="#395592"/><path d="M421 415c.62 1.88.62 1.88 1 4l-2 2c-1.94-.12-1.94-.12-4-1-1.75-2.06-1.75-2.06-3-4l8 1z" fill="#334E8D"/><path d="m322 327 4 1-1 4-2.25-.12c-3.08-.05-3.08-.05-6.75 2.12z" fill="#2E4C8D"/><path d="M229 58v3l3 1c-7.43 1.29-7.43 1.29-11 0 4.62-4 4.62-4 8-4" fill="#2E4D8E"/><path d="M363 252c3.24 2.39 5.51 4.2 7 8-2.35-.6-4.69-1.27-7-2l-1-2h2z" fill="#3E9B50"/><path d="M134 264c2.97.5 2.97.5 6 1l-1 2-3-1-1 6c-.12-.64-.25-1.28-.38-1.94-.3-1.02-.3-1.02-.62-2.06l-2-1z" fill="#3B5693"/><path d="M184 231c2.97.5 2.97.5 6 1v2l-6 1z" fill="#405994"/><path d="M233 178h1v11l-4-2 1-3h2z" fill="#3F5A95"/><path d="M271 386h3v2l3 1-8 1z" fill="#345191"/><path d="m257 377 2 1-2 8h-2c.88-6.75.88-6.75 2-9" fill="#425994"/><path d="M345 327c1.94.81 1.94.81 4 2l1 3-4 1z" fill="#35518F"/><path d="m263 250 1 4h-3v-2l-3 1-2-2c2.49-.69 4.38-1 7-1" fill="#3D9B4F"/></svg>
+                    </div>
+                    <span class="brand-badge">Porraza</span>
+                    <span class="header-chip">Recupera el acceso</span>
+                    <h1 class="header-title">Restablece tu contraseña</h1>
+                    <p class="header-subtitle">Genera una nueva clave segura y vuelve a tus ligas.</p>
                   </td>
                 </tr>
                 <tr>
                   <td class="content">
-                    <h2>Hola ${name},</h2>
+                    <p>Hola ${name},</p>
                     <p>
                       Hemos recibido una solicitud para restablecer la contraseña de tu cuenta en Porraza.
-                      Haz clic en el botón de abajo para crear una nueva contraseña.
+                      Usa el botón para crear una nueva clave y proteger tu acceso.
                     </p>
-                    <div class="warning-box">
-                      <p>⏱️ Este enlace expira en 1 hora por seguridad.</p>
+                    <table role="presentation" cellpadding="0" cellspacing="0" class="meta-grid">
+                      <tr>
+                        <td>
+                          <div class="meta-card">
+                            <p class="meta-label">Solicitud</p>
+                            <p class="meta-value">${requestDate}</p>
+                          </div>
+                        </td>
+                        <td>
+                          <div class="meta-card">
+                            <p class="meta-label">Enlace válido</p>
+                            <p class="meta-value"><span class="meta-pill">${expirationWindow}</span></p>
+                          </div>
+                        </td>
+                      </tr>
+                    </table>
+                    <div class="callout callout-warning">
+                      <p class="callout-title">Recuperación protegida</p>
+                      <p class="callout-text">Por seguridad el enlace expira pronto. Si caduca, solicita uno nuevo.</p>
                     </div>
                     <div class="cta-wrapper">
                       <a href="${resetUrl}" class="cta-button">Restablecer contraseña</a>
                     </div>
-                    <div class="security-notice">
-                      <p><strong>🔒 Consejos de seguridad:</strong></p>
-                      <p>• Si no solicitaste este cambio, ignora este correo.</p>
-                      <p>• Tu contraseña actual permanecerá sin cambios.</p>
-                      <p>• Nunca compartas este enlace con nadie.</p>
+                    <div class="callout callout-info">
+                      <p class="callout-title">Consejos rápidos</p>
+                      <p class="callout-text">Si no solicitaste este cambio, ignora este correo: tu contraseña actual seguirá protegida.</p>
+                      <p class="callout-text">Nunca compartas este enlace; es personal y deja de funcionar al usarlo una vez.</p>
                     </div>
-                    <p style="font-size: 14px; color: #6b7280; margin-top: 32px;">
-                      Si el botón no funciona, copia y pega este enlace en tu navegador:<br>
-                      <a href="${resetUrl}" style="word-break: break-all; font-size: 13px;">${resetUrl}</a>
+                    <p class="body-small">¿No te funciona el botón? Copia y pega el enlace directo.</p>
+                    <p class="link-block">
+                      <a href="${resetUrl}">${resetUrl}</a>
                     </p>
                   </td>
                 </tr>
                 <tr>
-                  <td class="footer-card">
-                    <p>¿Necesitas ayuda? Responde a este email y te atenderemos lo antes posible.</p>
-                    <p>Porraza · porraza.com · contacto@porraza.com · +34 667 80 99 50</p>
+                  <td class="footer">
+                    <div class="footer-logo" role="presentation">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512"><path d="m236 225 3 29c19.96-3.16 37-9.3 55.19-18 1-.47 1-.47 2.01-.96 1.8-.85 3.58-1.72 5.37-2.59 10.24-4.32 19.05-4.14 29.43-.45 28.42 12.14 44.29 32.65 62 57 .71.96.71.96 1.43 1.94 2.4 3.31 4.52 6.61 6.38 10.25 2.12 4.02 4.46 7.63 7.13 11.31 11.67 17.42 15 39.94 19.25 60.08.17.81.34 1.63.52 2.46.3 1.44.6 2.89.87 4.33 1.46 7.05 4.36 12.8 9.17 18.13 6.76 8.2 13.81 19.55 13.25 30.5-1.31 1.73-1.31 1.73-3 3-7.42.15-11.8-4.04-16.96-8.81-2.95-2.88-5.71-5.77-8.04-9.19l-2 7c-1.75.75-1.75.75-4 1-4.02-2.56-5.2-6.34-6.44-10.73-.57-3.31-.67-6.39-.71-9.74-.17-11.09-2.98-19.55-7.53-29.59-1.5-3.35-2.95-6.73-4.38-10.11-2.52-5.95-5.05-11.89-7.64-17.81-.8-1.86-1.58-3.73-2.32-5.61-2.24-5.53-5.09-9.21-9.42-13.29-.56-.55-1.12-1.1-1.69-1.67-3.1-3.01-6.12-5.28-9.87-7.45a71 71 0 0 1-3.44-3.5c-3.7-3.8-7.66-7.14-11.81-10.44q-.9-.72-1.83-1.47c-4.05-3.26-4.05-3.26-8.92-4.59-3.08 1.02-3.08 1.02-6.41 2.65-1.3.59-2.6 1.19-3.9 1.78-1.02.48-1.02.48-2.07.96-35 16.17-84.67 35.11-123.62 23.61-14.27-5.34-24.73-16.42-35.19-27.06-1.05-1.07-2.11-2.14-3.17-3.2-2.55-2.58-5.1-5.16-7.64-7.74 1.27-4.21 2.84-7.67 5.2-11.38.62-1 1.25-1.99 1.9-3.02 1.37-2.14 2.74-4.28 4.12-6.41 4.22-6.48 4.22-6.48 7.74-13.34 3.72-7.94 8.46-10.56 16.35-13.6 3.08-1.1 6.18-2.14 9.29-3.15 3.63-1.17 7.23-2.41 10.84-3.65C233.3 225 233.3 225 236 225" fill="#1F903A"/><path d="m236 225 3 29 13-2c3-.07 6-.1 9 0 .5 1.98.5 1.98 1 4h5c.5 1.49.5 1.49 1 3h4c1.12 3.75 1.12 3.75 0 6 .4 2.1.4 2.1 1 4h-2l-2 4h-4v3c.93-.19 1.86-.37 2.81-.56C271 275 271 275 274 276l3-1-1-3h4c.5 2.97.5 2.97 1 6h2v2h2l1 3c-3.13 1.86-5.37 2.2-9 2 .57 3.93.57 3.93 3 7l3-2-4-2c1.69-1.06 1.69-1.06 4-2 .8.21 1.61.41 2.44.62 2.76.71 2.76.71 5.25-1.56 1.14-1.02 1.14-1.02 2.31-2.06h2v2c-2 1.62-2 1.62-4 3l1 3-5.37 3.03c-1.61.87-1.61.87-2.63 1.97 2.07.15 2.07.15 4-1v2c2-.58 2-.58 4-2 1.29-3.04 1.29-3.04 2-6 1.12 1.69 1.12 1.69 2 4-.75 3.42-1.47 4.66-4.44 6.56-.84.48-1.69.95-2.56 1.44-1.78 2.07-1.78 2.07-3 4v-3c-2.47.34-2.47.34-5 1l-1 2 5-1 1 2 3 1-1 4 4 2c-1 2-1 2-3.12 2.81-.93.25-1.86.51-2.82.78-1.05.29-2.09.57-3.17.87-1.14.3-2.28.6-3.45.92-1.76.46-1.76.46-3.55.93-24.86 6.42-56.08 13.95-79.92.54-9.91-6.16-18.03-14.65-26.16-22.91-1.05-1.07-2.11-2.14-3.17-3.2-2.55-2.58-5.1-5.16-7.64-7.74 1.27-4.21 2.84-7.67 5.2-11.38.62-1 1.25-1.99 1.9-3.02 1.37-2.14 2.74-4.28 4.12-6.41 4.22-6.48 4.22-6.48 7.74-13.34 3.72-7.94 8.46-10.56 16.35-13.6 3.08-1.1 6.18-2.14 9.29-3.15 3.63-1.17 7.23-2.41 10.84-3.65C233.3 225 233.3 225 236 225" fill="#1F903A"/><path d="M288.375 49.625c2.16 3.16 2.49 5.57 2.62 9.38-1.32 4.23-4.53 6-8.11 8.26-.61.4-1.23.79-1.86 1.2-1.96 1.27-3.93 2.53-5.9 3.78-1.29.83-2.57 1.66-3.86 2.49-.63.41-1.26.82-1.91 1.24l-3.81 2.46c-2.99 1.94-5.99 3.84-9.06 5.64-1.07.65-2.14 1.3-3.24 1.97-.95.55-1.89 1.1-2.86 1.67-6.1 5.84-6.46 16.22-7.83 24.17-.22 1.21-.43 2.43-.65 3.68-.68 3.85-1.36 7.7-2.03 11.56-.46 2.6-.92 5.2-1.38 7.79-3.43 19.45-4.85 37.11-3.85 56.83.41 8.43.44 16.82.35 25.26-.81.26-1.63.52-2.48.79-3.82 1.22-7.64 2.46-11.45 3.71-1.03.33-1.03.33-2.08.67-8.96 2.95-17.69 6.09-26.02 10.57-3.87 2.03-5.78 2.31-9.97 1.26 1.59-6.5 3.25-12.97 5.01-19.42.35-1.29.7-2.58 1.05-3.86.54-1.97 1.07-3.93 1.62-5.89 3.9-13.74 3.9-13.74 3.32-27.83-.22-3.3-.27-6.58-.31-9.88l-.09-2.55c-.18-19.59 9.5-38.44 16.65-56.25 7.65-18.42 7.65-18.42 8.82-38.01-.08-4.09.59-5.97 2.93-9.31 4.96-3.53 9.67-4.92 15.58-6.08.8-.16 1.61-.33 2.44-.5 2.55-.53 5.11-1.04 7.67-1.55 1.7-.35 3.4-.7 5.09-1.05 29.85-6.14 29.85-6.14 35.6-2.2M148 220c3.41 1.81 6.71 3.79 10 5.81.87.53 1.74 1.06 2.63 1.6 5.95 3.64 11.78 7.41 17.37 11.59-3.19 6.75-6.98 13.04-10.92 19.38-1.08 1.75-2.16 3.49-3.24 5.24-3.2 5.18-6.44 10.32-9.84 15.38-5.04-2.08-8.54-6.09-12.44-9.79-2.42-2.38-2.42-2.38-5.56-3.21-.1.84-.2 1.68-.3 2.55-3.28 16.15-16.12 30.19-26.08 42.71-.52.66-1.04 1.33-1.57 2.02-.96 1.23-1.94 2.45-2.94 3.65-2.45 3.17-3.41 5.33-2.96 9.25.58 2.62 1.18 5.22 1.85 7.82.24 2.18.24 2.18.31 4.44l.12 2.24c-.62 3.34-2.06 4.93-4.43 7.32-2.39 1.08-2.39 1.08-5.25 1.81-1.13.32-2.26.63-3.42.96-.66.18-1.32.36-2 .55-5 1.46-9.94 3.11-14.89 4.74l-3.21 1.03c-1.01.34-2.01.67-3.05 1.01-.9.29-1.8.59-2.73.89-2.52 1.04-4.28 2.38-6.45 4.01-2.7.61-5.21 1.05-7.94 1.38-1.05.16-1.05.16-2.13.32-3.45.43-5.66.42-8.87-.99C38 362 38 362 36.94 359.19c.1-5.28 3.21-8.34 6.84-11.98 1.05-.95 2.1-1.9 3.16-2.83 1.16-1.05 2.31-2.1 3.47-3.15l1.79-1.61c2.91-2.62 5.79-5.28 8.68-7.93l1.54-1.42c1.01-.93 2.02-1.87 3.02-2.81 1.07-1 2.17-1.96 3.29-2.9 5.43-4.79 7.77-10.39 10.38-17.05.79-2.01 1.59-4 2.41-6 .88-2.16 1.76-4.33 2.63-6.5 3.74-9.27 7.68-18.45 11.6-27.63 1.45-3.4 2.9-6.8 4.34-10.19.35-.81.69-1.61 1.04-2.44 1.95-4.57 3.88-9.16 5.78-13.75.4-.98.81-1.96 1.23-2.96.7-1.69 1.4-3.38 2.09-5.08 3.23-7.71 7.37-12.51 15.09-16.04 8.3-2.85 15.03-.44 22.68 3.08" fill="#163E86"/><path d="M380.672 65.984c9.31 7.99 14.25 16.27 15.61 28.59.37 10.09-2.91 18.67-9.28 26.43-6.43 6.86-14.38 11.44-23.85 12.23-12.26.29-21.62-3.05-30.71-11.36-7.64-7.84-9.79-16.94-9.82-27.52.22-10.2 4.24-18.14 11.26-25.45 12.94-11.67 32.56-13.49 46.79-2.92" fill="#ED282E"/><path d="M397 298c20.11 18.82 24.78 48.94 30.19 74.58.17.81.34 1.63.52 2.46.3 1.44.6 2.89.87 4.33 1.46 7.05 4.36 12.8 9.17 18.13 6.76 8.2 13.81 19.55 13.25 30.5-1.31 1.73-1.31 1.73-3 3-7.42.15-11.8-4.04-16.96-8.81-2.95-2.88-5.71-5.77-8.04-9.19l-2 7c-1.75.75-1.75.75-4 1-4.02-2.56-5.2-6.34-6.44-10.73-.57-3.31-.67-6.39-.71-9.74-.17-11.09-2.98-19.55-7.53-29.59-1.5-3.35-2.95-6.73-4.38-10.11-2.52-5.95-5.05-11.89-7.64-17.81-.8-1.86-1.58-3.73-2.32-5.61-2.25-5.58-5.16-9.25-9.54-13.35-.58-.56-1.16-1.12-1.75-1.7-2.49-2.41-4.8-4.43-7.69-6.36.84-.38 1.67-.77 2.54-1.16 3.94-2.1 7.35-4.58 10.9-7.28 4.7-3.56 9.38-6.73 14.56-9.56" fill="#173E86"/><path d="M384.25 181.688c7.12 5.83 12.09 13.08 13.07 22.32.33 9.21-1.26 17.5-7.07 24.87-6.52 6.84-14.2 10.12-23.62 10.43-9.66-.23-16.71-3.56-23.63-10.31-6.81-8.59-7.73-17.28-7-28 1.14-8.08 5.99-13.71 12-19 11.46-7.42 24.77-8.36 36.25-.31" fill="#163D86"/><path d="M335 320c2.43 1.16 4.51 2.3 6.75 3.75.58.35 1.15.7 1.75 1.05 2.36 1.49 4.3 2.94 6.04 5.15.89 3.94-1.64 6.81-3.59 10.11-9.16 13.79-22.71 21.29-36.64 29.48-4.83 2.87-9.33 5.86-13.75 9.34-8.02 6.24-17.38 10.86-27.56 12.12-.71.09-1.42.19-2.15.29-3.84.27-5.7-.19-8.91-2.35-1.94-2.94-1.94-2.94-2.13-6.19 2.81-8.87 8.81-15.27 16.19-20.75 4.57-2.29 9.27-2.34 14.32-2.56 14.43-2.37 30.63-25.05 39.49-35.88 3.26-3.82 5.25-4 10.19-3.56" fill="#173D85"/><path d="M363 176c4.16-.08 7.95.02 12 1-.99.5-.99.5-2 1-.15.93-.15.93-.31 1.88-.69 2.12-.69 2.12-3.13 3.93-.84.39-1.69.79-2.56 1.19l-2-1c1-2 1-2 4-4l-7-2z" fill="#345291"/><path d="M118 221c.91 3.08 1.08 5.79 1 9v3l-4-1v-4l-2-1z" fill="#2C4D8F"/><path d="M37 356h2c.21.78.41 1.57.62 2.38 1.19 2.93 1.19 2.93 4.5 3.93.95.23 1.9.46 2.88.69l-1 2c-2.81-.19-2.81-.19-6-1-2.28-2.89-3-4.3-3-8" fill="#475F99"/><path d="M220 66c2.56 3.79 2.03 7.41 1.62 11.75-.05.7-.11 1.39-.17 2.11-.14 1.72-.29 3.43-.45 5.14h-1c-1.31-5.91-1.32-11.97-1-18z" fill="#3B5491"/><path d="M374.625 315.813c2.38 1.19 2.38 1.19 3.38 3.19l3 2h-2c-.33.99-.67 1.98-1 3l-1.21-1.24-1.61-1.64-1.58-1.61c-1.74-1.72-1.74-1.72-4.6-3.51 3-1 3-1 5.62-.19" fill="#3B5A91"/><path d="m449 422 2 1-1 7-7 1v-2c1.88-1.06 1.88-1.06 4-2l2 1z" fill="#3F5692"/><path d="m340 223 6 2 1 7c-2.96-2.81-5.44-5.18-7-9" fill="#395592"/><path d="M421 415c.62 1.88.62 1.88 1 4l-2 2c-1.94-.12-1.94-.12-4-1-1.75-2.06-1.75-2.06-3-4l8 1z" fill="#334E8D"/><path d="m322 327 4 1-1 4-2.25-.12c-3.08-.05-3.08-.05-6.75 2.12z" fill="#2E4C8D"/><path d="M229 58v3l3 1c-7.43 1.29-7.43 1.29-11 0 4.62-4 4.62-4 8-4" fill="#2E4D8E"/><path d="M363 252c3.24 2.39 5.51 4.2 7 8-2.35-.6-4.69-1.27-7-2l-1-2h2z" fill="#3E9B50"/><path d="M134 264c2.97.5 2.97.5 6 1l-1 2-3-1-1 6c-.12-.64-.25-1.28-.38-1.94-.3-1.02-.3-1.02-.62-2.06l-2-1z" fill="#3B5693"/><path d="M184 231c2.97.5 2.97.5 6 1v2l-6 1z" fill="#405994"/><path d="M233 178h1v11l-4-2 1-3h2z" fill="#3F5A95"/><path d="M271 386h3v2l3 1-8 1z" fill="#345191"/><path d="m257 377 2 1-2 8h-2c.88-6.75.88-6.75 2-9" fill="#425994"/><path d="M345 327c1.94.81 1.94.81 4 2l1 3-4 1z" fill="#35518F"/><path d="m263 250 1 4h-3v-2l-3 1-2-2c2.49-.69 4.38-1 7-1" fill="#3D9B4F"/></svg>
+                    </div>
+                    <p>¿Necesitas ayuda? Mándanos un mail y te atenderemos lo antes posible.</p>
+                    <p><a href="https://porraza.com">Porraza</a> · <a href="mailto:contacto@porraza.com">contacto@porraza.com</a></p>
                     <p class="footer-links">
                       <a href="https://porraza.com/legal-advise">Aviso legal</a> ·
                       <a href="https://porraza.com/privacy-policy">Política de privacidad</a> ·
                       <a href="https://porraza.com/cookies-policy">Política de cookies</a>
                     </p>
-                    <p style="margin-top: 24px; font-size: 12px; color: #9ca3af;">
-                      © ${currentYear} Porraza. Todos los derechos reservados. 50011 Miralbueno, Zaragoza.
+                    <p style="margin-top: 24px; font-size: 12px; color: rgba(100, 116, 139, 0.9);">
+                      © ${currentYear} Porraza. Todos los derechos reservados.
                     </p>
                   </td>
                 </tr>
