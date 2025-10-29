@@ -14,11 +14,15 @@ import { GetOrCreatePredictionUseCase } from '@application/use-cases/predictions
 import { SaveGroupPredictionsUseCase } from '@application/use-cases/predictions/save-group-predictions.use-case';
 import { CalculateGroupStandingsUseCase } from '@application/use-cases/predictions/calculate-group-standings.use-case';
 import { CalculateBestThirdPlacesUseCase } from '@application/use-cases/predictions/calculate-best-third-places.use-case';
+import { GetBestThirdPlacesByPredictionUseCase } from '@application/use-cases/predictions/get-best-third-places.use-case';
 import { UpdateAwardsUseCase } from '@application/use-cases/predictions/update-awards.use-case';
 import { UpdateChampionUseCase } from '@application/use-cases/predictions/update-champion.use-case';
 import { GetLeagueRankingUseCase } from '@application/use-cases/predictions/get-league-ranking.use-case';
 import { GetPredictionStatsUseCase } from '@application/use-cases/predictions/get-prediction-stats.use-case';
 import { GetMatchesWithPredictionsUseCase } from '@application/use-cases/predictions/get-matches-with-predictions.use-case';
+
+// Services
+import { CalculateGroupStandingsService } from '@application/services/calculate-group-standings.service';
 
 // Repositories
 import { PlayerRepository } from '@infrastructure/persistence/repositories/player.repository';
@@ -128,15 +132,21 @@ import { BestThirdPlacePredictionRepository } from '@infrastructure/persistence/
     GetPlayersByTeamsUseCase, // Obtiene jugadores de múltiples equipos (batch)
 
     // ========================
-    // PREDICTION USE CASES (8)
+    // PREDICTION USE CASES (9)
     // ========================
     GetOrCreatePredictionUseCase, // Obtiene o crea predicción (auto-create)
     SaveGroupPredictionsUseCase, // Guarda 6 predicciones + calcula tabla
+    GetBestThirdPlacesByPredictionUseCase, // Obtiene 8 mejores terceros de una predicción
     UpdateAwardsUseCase, // Actualiza Golden Boot/Ball/Glove
     UpdateChampionUseCase, // Actualiza equipo campeón
     GetLeagueRankingUseCase, // Obtiene ranking de liga (JOIN users)
     GetPredictionStatsUseCase, // Obtiene estadísticas de progreso
     GetMatchesWithPredictionsUseCase, // Obtiene matches de grupos con predicciones
+
+    // ========================
+    // SERVICES - Helper Services
+    // ========================
+    CalculateGroupStandingsService, // Servicio de validación y cálculo de tablas
 
     // ========================
     // CALCULATION USE CASES (2) - Pure Business Logic

@@ -20,6 +20,7 @@ import {
 import { JwtAuthGuard } from '@adapters/guards/jwt-auth.guard';
 import { GetOrCreatePredictionUseCase } from '@application/use-cases/predictions/get-or-create-prediction.use-case';
 import { SaveGroupPredictionsUseCase } from '@application/use-cases/predictions/save-group-predictions.use-case';
+import { GetBestThirdPlacesByPredictionUseCase } from '@application/use-cases/predictions/get-best-third-places.use-case';
 import { UpdateAwardsUseCase } from '@application/use-cases/predictions/update-awards.use-case';
 import { UpdateChampionUseCase } from '@application/use-cases/predictions/update-champion.use-case';
 import { GetLeagueRankingUseCase } from '@application/use-cases/predictions/get-league-ranking.use-case';
@@ -77,6 +78,7 @@ export class PredictionController {
   constructor(
     private readonly getOrCreatePredictionUseCase: GetOrCreatePredictionUseCase,
     private readonly saveGroupPredictionsUseCase: SaveGroupPredictionsUseCase,
+    private readonly getBestThirdPlacesByPredictionUseCase: GetBestThirdPlacesByPredictionUseCase,
     private readonly updateAwardsUseCase: UpdateAwardsUseCase,
     private readonly updateChampionUseCase: UpdateChampionUseCase,
     private readonly getLeagueRankingUseCase: GetLeagueRankingUseCase,
@@ -88,7 +90,8 @@ export class PredictionController {
    * GET /predictions/league/:leagueId
    *
    * Obtiene o crea la predicción del usuario para una liga.
-   * También retorna el ranking completo de la liga y todos los partidos de fase de grupos con predicciones.
+   * También retorna el ranking completo de la liga, todos los partidos de fase de grupos con predicciones,
+   * y los 8 mejores terceros lugares si se completaron los 12 grupos.
    *
    * Flujo:
    * 1. Extrae userId del JWT
@@ -97,18 +100,20 @@ export class PredictionController {
    * 4. Obtiene ranking de la liga
    * 5. Obtiene todos los partidos de fase de grupos (72)
    * 6. Obtiene predicciones del usuario para esos partidos
-   * 7. Combina matches con predicciones (0-0 si no existe predicción)
-   * 8. Retorna predicción + ranking + matches
+   * 7. Si groupsCompleted = true, obtiene los 8 mejores terceros
+   * 8. Combina matches con predicciones (0-0 si no existe predicción)
+   * 9. Retorna predicción + ranking + matches + bestThirdPlaces (si aplica)
    *
    * Casos de uso:
    * - Usuario accede por primera vez a predicciones de una liga
    * - Usuario consulta su predicción existente
    * - Frontend muestra tabla de clasificación de la liga
    * - Frontend muestra formularios de predicción pre-poblados (0-0 por defecto)
+   * - Frontend muestra los 32 clasificados a eliminatorias (24 primeros/segundos + 8 mejores terceros)
    *
    * @param leagueId - UUID de la liga
    * @param req - Request con usuario autenticado (JWT)
-   * @returns Predicción del usuario + ranking de la liga + matches con predicciones
+   * @returns Predicción del usuario + ranking de la liga + matches con predicciones + bestThirdPlaces
    */
   @Get('league/:leagueId')
   @ApiOperation({
@@ -125,7 +130,7 @@ export class PredictionController {
   @ApiResponse({
     status: 200,
     description:
-      'Prediction, ranking, and matches with predictions retrieved successfully',
+      'Prediction, ranking, matches with predictions, and best third places retrieved successfully',
     schema: {
       properties: {
         prediction: { type: 'object' },
@@ -146,6 +151,31 @@ export class PredictionController {
             properties: {
               match: { type: 'object' },
               userPrediction: { type: 'object' },
+            },
+          },
+        },
+        bestThirdPlaces: {
+          type: 'array',
+          description:
+            'The 8 best third-placed teams (only included when all 12 groups are completed)',
+          nullable: true,
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', format: 'uuid' },
+              predictionId: { type: 'string', format: 'uuid' },
+              teamId: { type: 'string', format: 'uuid' },
+              rankingPosition: {
+                type: 'number',
+                description: 'Ranking position (1-8)',
+              },
+              points: { type: 'number' },
+              goalDifference: { type: 'number' },
+              goalsFor: { type: 'number' },
+              fromGroupId: { type: 'string', format: 'uuid' },
+              hasTiebreakConflict: { type: 'boolean' },
+              tiebreakGroup: { type: 'number', nullable: true },
+              manualTiebreakOrder: { type: 'number', nullable: true },
             },
           },
         },
@@ -177,10 +207,15 @@ export class PredictionController {
     );
 
     // 2. Ejecutar queries en paralelo para mejor performance
-    const [rankingData, matchesWithPredictions] = await Promise.all([
-      this.getLeagueRankingUseCase.execute(leagueId),
-      this.getMatchesWithPredictionsUseCase.execute(prediction.id),
-    ]);
+    const [rankingData, matchesWithPredictions, bestThirdPlaces] =
+      await Promise.all([
+        this.getLeagueRankingUseCase.execute(leagueId),
+        this.getMatchesWithPredictionsUseCase.execute(prediction.id),
+        // Solo obtener best third places si se completaron los 12 grupos
+        prediction.groupsCompleted
+          ? this.getBestThirdPlacesByPredictionUseCase.execute(prediction.id)
+          : Promise.resolve([]),
+      ]);
 
     // 3. Transformar a DTOs
 
@@ -214,46 +249,48 @@ export class PredictionController {
       prediction: predictionDto,
       ranking: rankingDto,
       matches: matchesDto,
+      bestThirdPlaces: bestThirdPlaces.length > 0 ? bestThirdPlaces : undefined,
     };
   }
 
   /**
    * POST /predictions/league/:leagueId/groups/:groupId
    *
-   * Guarda las predicciones de partidos de un grupo (6 partidos).
-   * Calcula automáticamente la tabla de posiciones según reglas FIFA.
+   * Guarda las predicciones de partidos de un grupo (6 partidos) + tabla de clasificación.
+   * **NUEVO ENFOQUE**: Frontend envía tabla calculada, backend valida.
    *
    * Flujo:
    * 1. Valida que haya exactamente 6 predicciones de partidos
-   * 2. Guarda predicciones (UPSERT - permite editar antes del deadline)
-   * 3. Calcula tabla de posiciones (4 equipos, ordenados por: puntos → GD → GF)
-   * 4. Guarda tabla de posiciones
-   * 5. Detecta conflictos de desempate (3 stats idénticos)
-   * 6. Retorna predicción actualizada + flags de conflicto
+   * 2. Valida que haya exactamente 4 posiciones en groupStandings
+   * 3. Calcula tabla desde matchPredictions (source of truth)
+   * 4. Valida que groupStandings enviado coincida con el calculado
+   * 5. Guarda predicciones (UPSERT - permite editar antes del deadline)
+   * 6. Guarda tabla de posiciones (con orden del usuario)
+   * 7. Verifica si completó los 12 grupos
+   * 8. Retorna success + completion status
    *
-   * Reglas FIFA de desempate:
-   * 1. Puntos (victoria: 3, empate: 1, derrota: 0)
-   * 2. Diferencia de goles
-   * 3. Goles a favor
-   * 4. (v1 simplificada: no fair play ni ranking FIFA)
+   * Ventajas:
+   * - Frontend maneja UX de empates (drag & drop)
+   * - Backend valida que estadísticas sean correctas
+   * - Usuario resuelve empates antes de enviar (no necesita roundtrip)
    *
    * Casos de uso:
    * - Usuario completa predicciones de un grupo
    * - Usuario edita predicciones antes del deadline
-   * - Frontend detecta desempates y pide al usuario ordenar manualmente
+   * - Usuario ordena manualmente equipos empatados (drag & drop)
    *
    * @param leagueId - UUID de la liga
    * @param groupId - UUID del grupo (A-L)
-   * @param dto - 6 predicciones de partidos con scores
+   * @param dto - 6 predicciones de partidos + 4 posiciones de tabla
    * @param req - Request con usuario autenticado (JWT)
-   * @returns Predicción actualizada + flags de desempate
+   * @returns Success message + completion status
    */
   @Post('league/:leagueId/groups/:groupId')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Save group predictions',
+    summary: 'Save group predictions with standings',
     description:
-      'Saves match predictions for a group (6 matches) and calculates group standings',
+      'Saves match predictions (6 matches) and group standings (4 teams). Backend validates that standings match the predictions.',
   })
   @ApiParam({
     name: 'leagueId',
@@ -272,17 +309,51 @@ export class PredictionController {
     description: 'Group predictions saved successfully',
     schema: {
       properties: {
-        prediction: { type: 'object' },
-        tiebreakConflicts: {
+        success: { type: 'boolean', example: true },
+        message: {
+          type: 'string',
+          example: 'Group predictions saved successfully',
+        },
+        groupsCompleted: {
+          type: 'boolean',
+          example: false,
+          description: 'Whether all 12 groups have been completed',
+        },
+        totalGroupsCompleted: {
+          type: 'number',
+          example: 5,
+          description: 'Number of groups completed (0-12)',
+        },
+        bestThirdPlaces: {
           type: 'array',
-          description: 'Teams with identical points, GD and GF',
+          description:
+            'The 8 best third-placed teams (only included when all 12 groups are completed)',
+          nullable: true,
+          items: {
+            type: 'object',
+            properties: {
+              teamId: { type: 'string', format: 'uuid' },
+              rankingPosition: {
+                type: 'number',
+                description: 'Ranking position (1-8)',
+              },
+              points: { type: 'number' },
+              goalDifference: { type: 'number' },
+              goalsFor: { type: 'number' },
+              fromGroupId: { type: 'string', format: 'uuid' },
+              hasTiebreakConflict: { type: 'boolean' },
+              tiebreakGroup: { type: 'number', nullable: true },
+              manualTiebreakOrder: { type: 'number', nullable: true },
+            },
+          },
         },
       },
     },
   })
   @ApiResponse({
     status: 400,
-    description: 'Bad Request - Invalid input (not 6 matches, invalid scores)',
+    description:
+      'Bad Request - Invalid input (not 6 matches, not 4 teams, or standings validation failed)',
   })
   @ApiResponse({
     status: 401,
@@ -304,30 +375,44 @@ export class PredictionController {
   ) {
     const userId = req.user.id;
 
-    // 1. Obtener o crear predicción del usuario para esta liga
-    const prediction = await this.getOrCreatePredictionUseCase.execute(
+    // Preparar datos para el Use Case
+    // Si el frontend envía homeTeamId/awayTeamId, se usan (y el backend los validará)
+    // Si no los envía, el Use Case los obtendrá desde la BD
+    const matchPredictionsWithTeams = dto.matchPredictions.map((mp) => ({
+      matchId: mp.matchId,
+      homeScore: mp.homeScore,
+      awayScore: mp.awayScore,
+      homeScoreET: mp.homeScoreET,
+      awayScoreET: mp.awayScoreET,
+      penaltiesWinner: mp.penaltiesWinner,
+      homeTeamId: mp.homeTeamId || '', // Se enriquecerá en Use Case si está vacío
+      awayTeamId: mp.awayTeamId || '', // Se enriquecerá en Use Case si está vacío
+    }));
+
+    const groupStandingsData = dto.groupStandings.map((gs) => ({
+      groupId,
+      teamId: gs.teamId,
+      position: gs.position,
+      points: gs.points,
+      played: gs.played,
+      wins: gs.wins,
+      draws: gs.draws,
+      losses: gs.losses,
+      goalsFor: gs.goalsFor,
+      goalsAgainst: gs.goalsAgainst,
+      goalDifference: gs.goalDifference,
+    }));
+
+    // Ejecutar Use Case con validación
+    const result = await this.saveGroupPredictionsUseCase.execute({
       userId,
       leagueId,
-    );
-
-    // 2. Guardar predicciones de grupo (incluye cálculo de tabla)
-    const result = await this.saveGroupPredictionsUseCase.execute({
-      predictionId: prediction.id,
       groupId,
-      matchPredictions: dto.matchPredictions,
+      matchPredictions: matchPredictionsWithTeams,
+      groupStandings: groupStandingsData,
     });
 
-    // 3. Obtener predicción actualizada
-    const updatedPrediction =
-      await this.getOrCreatePredictionUseCase.execute(userId, leagueId);
-
-    // 4. Transformar a DTO
-    const predictionDto = PredictionResponseDto.fromEntity(updatedPrediction);
-
-    return {
-      prediction: predictionDto,
-      tiebreakConflicts: result.tiebreakConflicts,
-    };
+    return result;
   }
 
   /**
