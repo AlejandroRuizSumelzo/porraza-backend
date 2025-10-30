@@ -31,6 +31,13 @@ export interface IStadiumRepository {
   findById(id: string): Promise<Stadium | null>;
 
   /**
+   * Busca múltiples estadios por sus IDs
+   * @param ids - Array de UUIDs de estadios
+   * @returns Promise con array de entidades Stadium
+   */
+  findByIds(ids: string[]): Promise<Stadium[]>;
+
+  /**
    * Busca un estadio por su código
    * @param code - Código único del estadio
    * @returns Promise con Stadium o null si no existe

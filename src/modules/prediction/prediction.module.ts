@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { DatabaseModule } from '@infrastructure/persistence/database.module';
 import { MatchModule } from '@modules/match/match.module';
+import { TeamModule } from '@modules/team/team.module';
+import { StadiumModule } from '@modules/stadium/stadium.module';
 import { PredictionController } from '@adapters/controllers/prediction.controller';
 import { PlayerController } from '@adapters/controllers/player.controller';
 
@@ -12,9 +14,11 @@ import { GetPlayersByTeamsUseCase } from '@application/use-cases/players/get-pla
 // Prediction Use Cases
 import { GetOrCreatePredictionUseCase } from '@application/use-cases/predictions/get-or-create-prediction.use-case';
 import { SaveGroupPredictionsUseCase } from '@application/use-cases/predictions/save-group-predictions.use-case';
+import { SaveKnockoutPredictionsUseCase } from '@application/use-cases/predictions/save-knockout-predictions.use-case';
 import { CalculateGroupStandingsUseCase } from '@application/use-cases/predictions/calculate-group-standings.use-case';
 import { CalculateBestThirdPlacesUseCase } from '@application/use-cases/predictions/calculate-best-third-places.use-case';
 import { GetBestThirdPlacesByPredictionUseCase } from '@application/use-cases/predictions/get-best-third-places.use-case';
+import { GetResolvedRoundOf32MatchesUseCase } from '@application/use-cases/predictions/get-resolved-round-of-32-matches.use-case';
 import { UpdateAwardsUseCase } from '@application/use-cases/predictions/update-awards.use-case';
 import { UpdateChampionUseCase } from '@application/use-cases/predictions/update-champion.use-case';
 import { GetLeagueRankingUseCase } from '@application/use-cases/predictions/get-league-ranking.use-case';
@@ -23,6 +27,8 @@ import { GetMatchesWithPredictionsUseCase } from '@application/use-cases/predict
 
 // Services
 import { CalculateGroupStandingsService } from '@application/services/calculate-group-standings.service';
+import { KnockoutBracketResolverService } from '@infrastructure/services/knockout-bracket-resolver.service';
+import { KnockoutValidatorService } from '@infrastructure/services/knockout-validator.service';
 
 // Repositories
 import { PlayerRepository } from '@infrastructure/persistence/repositories/player.repository';
@@ -118,6 +124,8 @@ import { BestThirdPlacePredictionRepository } from '@infrastructure/persistence/
   imports: [
     DatabaseModule, // Proporciona DATABASE_POOL para todos los repositorios
     MatchModule, // Proporciona IMatchRepository para SaveGroupPredictionsUseCase
+    TeamModule, // Proporciona ITeamRepository para GetResolvedRoundOf32MatchesUseCase
+    StadiumModule, // Proporciona IStadiumRepository para GetResolvedRoundOf32MatchesUseCase
   ],
   controllers: [
     PlayerController, // GET /players/team/:teamId, GET /players/goalkeepers
@@ -132,11 +140,13 @@ import { BestThirdPlacePredictionRepository } from '@infrastructure/persistence/
     GetPlayersByTeamsUseCase, // Obtiene jugadores de múltiples equipos (batch)
 
     // ========================
-    // PREDICTION USE CASES (9)
+    // PREDICTION USE CASES (11)
     // ========================
     GetOrCreatePredictionUseCase, // Obtiene o crea predicción (auto-create)
     SaveGroupPredictionsUseCase, // Guarda 6 predicciones + calcula tabla
+    SaveKnockoutPredictionsUseCase, // Guarda predicciones de eliminatorias (R32, R16, QF, SF, Final)
     GetBestThirdPlacesByPredictionUseCase, // Obtiene 8 mejores terceros de una predicción
+    GetResolvedRoundOf32MatchesUseCase, // Resuelve equipos de R32 según predicciones de grupos
     UpdateAwardsUseCase, // Actualiza Golden Boot/Ball/Glove
     UpdateChampionUseCase, // Actualiza equipo campeón
     GetLeagueRankingUseCase, // Obtiene ranking de liga (JOIN users)
@@ -147,6 +157,36 @@ import { BestThirdPlacePredictionRepository } from '@infrastructure/persistence/
     // SERVICES - Helper Services
     // ========================
     CalculateGroupStandingsService, // Servicio de validación y cálculo de tablas
+
+    /**
+     * KnockoutBracketResolverService
+     * Token: 'IKnockoutBracketResolverService'
+     * Implementa: IKnockoutBracketResolverService (Domain Service)
+     * Responsabilidades:
+     * - Resolver placeholders de partidos de eliminatorias (ej: "Group A winners")
+     * - Asignar terceros lugares según ranking y disponibilidad
+     * - Garantizar que cada tercero se asigne solo una vez
+     * - Consultar grupos desde BD para mapeo groupId → groupLetter
+     */
+    {
+      provide: 'IKnockoutBracketResolverService',
+      useClass: KnockoutBracketResolverService,
+    },
+
+    /**
+     * KnockoutValidatorService
+     * Token: 'IKnockoutValidatorService'
+     * Implementa: IKnockoutValidatorService (Domain Service)
+     * Responsabilidades:
+     * - Validar que fase anterior esté completa antes de permitir predicciones
+     * - Validar que equipos en partidos coincidan con ganadores esperados
+     * - Validar consistencia de resultados (90', prórroga, penaltis)
+     * - Determinar ganadores de fases anteriores para cascada de validación
+     */
+    {
+      provide: 'IKnockoutValidatorService',
+      useClass: KnockoutValidatorService,
+    },
 
     // ========================
     // CALCULATION USE CASES (2) - Pure Business Logic

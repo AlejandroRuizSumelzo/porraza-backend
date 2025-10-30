@@ -244,6 +244,52 @@ export class MatchPredictionRepository implements IMatchPredictionRepository {
   }
 
   /**
+   * Obtiene predicciones de partidos de una fase específica
+   * @param predictionId - ID de la predicción
+   * @param phase - Fase del torneo (ROUND_OF_32, ROUND_OF_16, etc.)
+   * @returns Array de predicciones de partidos de la fase
+   */
+  async findByPredictionAndPhase(
+    predictionId: string,
+    phase: string,
+  ): Promise<MatchPrediction[]> {
+    const query = `
+      SELECT
+        mp.id,
+        mp.prediction_id,
+        mp.match_id,
+        mp.home_score,
+        mp.away_score,
+        mp.home_score_et,
+        mp.away_score_et,
+        mp.penalties_winner,
+        mp.points_earned,
+        mp.points_breakdown,
+        mp.created_at,
+        mp.updated_at
+      FROM match_predictions mp
+      INNER JOIN matches m ON mp.match_id = m.id
+      WHERE mp.prediction_id = $1 AND m.phase = $2
+      ORDER BY m.match_number ASC
+    `;
+
+    try {
+      const result: QueryResult<MatchPredictionDatabaseRow> =
+        await this.pool.query(query, [predictionId, phase]);
+
+      return result.rows.map((row) => MatchPrediction.fromDatabase(row));
+    } catch (error) {
+      console.error(
+        `Error fetching match predictions for prediction ${predictionId} and phase ${phase}:`,
+        error,
+      );
+      throw new Error(
+        'Failed to fetch match predictions by prediction and phase from database',
+      );
+    }
+  }
+
+  /**
    * Actualiza puntos ganados en una predicción de partido
    */
   async updatePoints(

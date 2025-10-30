@@ -352,13 +352,8 @@ export class GroupStandingPredictionRepository
         throw new Error(`Group standing prediction with id ${id} not found`);
       }
     } catch (error) {
-      console.error(
-        `Error updating points for group standing ${id}:`,
-        error,
-      );
-      throw new Error(
-        'Failed to update group standing points in database',
-      );
+      console.error(`Error updating points for group standing ${id}:`, error);
+      throw new Error('Failed to update group standing points in database');
     }
   }
 

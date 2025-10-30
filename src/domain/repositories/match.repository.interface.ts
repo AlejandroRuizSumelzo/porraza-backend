@@ -102,7 +102,22 @@ export interface IMatchRepository {
   findAll(): Promise<Match[]>;
   findById(id: string): Promise<Match | null>;
   findByIds(ids: string[]): Promise<Match[]>;
+
+  /**
+   * Obtiene un partido por su número
+   * @param matchNumber - Número del partido (1-104)
+   * @returns Match o null si no existe
+   */
+  findByMatchNumber(matchNumber: number): Promise<Match | null>;
+
   findCalendarWithDetails(): Promise<MatchWithDetailsRow[]>;
+
+  /**
+   * Obtiene todos los partidos de una fase específica del torneo
+   * @param phase - Fase del torneo (GROUP_STAGE, ROUND_OF_32, ROUND_OF_16, etc.)
+   * @returns Array de partidos de la fase solicitada
+   */
+  findByPhase(phase: string): Promise<Match[]>;
 
   /**
    * Obtiene todos los partidos de fase de grupos (GROUP_STAGE)

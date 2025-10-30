@@ -86,4 +86,40 @@ export class TeamRepository implements ITeamRepository {
       throw new Error('Failed to fetch team by ID from database');
     }
   }
+
+  /**
+   * Busca múltiples equipos por sus IDs
+   * Query batch optimizada con ANY($1)
+   */
+  async findByIds(ids: string[]): Promise<Team[]> {
+    if (ids.length === 0) {
+      return [];
+    }
+
+    const query = `
+      SELECT
+        id,
+        name,
+        fifa_code,
+        confederation,
+        is_host,
+        created_at,
+        updated_at
+      FROM teams
+      WHERE id = ANY($1)
+      ORDER BY name ASC
+    `;
+
+    try {
+      const result: QueryResult<TeamDatabaseRow> = await this.pool.query(
+        query,
+        [ids],
+      );
+
+      return result.rows.map((row) => Team.fromDatabase(row));
+    } catch (error) {
+      console.error('Error fetching teams by ids:', error);
+      throw new Error('Failed to fetch teams by IDs from database');
+    }
+  }
 }

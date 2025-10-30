@@ -9,6 +9,7 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
+  BadRequestException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -20,13 +21,16 @@ import {
 import { JwtAuthGuard } from '@adapters/guards/jwt-auth.guard';
 import { GetOrCreatePredictionUseCase } from '@application/use-cases/predictions/get-or-create-prediction.use-case';
 import { SaveGroupPredictionsUseCase } from '@application/use-cases/predictions/save-group-predictions.use-case';
+import { SaveKnockoutPredictionsUseCase } from '@application/use-cases/predictions/save-knockout-predictions.use-case';
 import { GetBestThirdPlacesByPredictionUseCase } from '@application/use-cases/predictions/get-best-third-places.use-case';
+import { GetResolvedRoundOf32MatchesUseCase } from '@application/use-cases/predictions/get-resolved-round-of-32-matches.use-case';
 import { UpdateAwardsUseCase } from '@application/use-cases/predictions/update-awards.use-case';
 import { UpdateChampionUseCase } from '@application/use-cases/predictions/update-champion.use-case';
 import { GetLeagueRankingUseCase } from '@application/use-cases/predictions/get-league-ranking.use-case';
 import { GetPredictionStatsUseCase } from '@application/use-cases/predictions/get-prediction-stats.use-case';
 import { GetMatchesWithPredictionsUseCase } from '@application/use-cases/predictions/get-matches-with-predictions.use-case';
 import { SaveGroupPredictionsDto } from '@adapters/dtos/prediction/save-group-predictions.dto';
+import { SaveKnockoutPredictionsDto } from '@adapters/dtos/prediction/save-knockout-predictions.dto';
 import { UpdateAwardsDto } from '@adapters/dtos/prediction/update-awards.dto';
 import { UpdateChampionDto } from '@adapters/dtos/prediction/update-champion.dto';
 import { PredictionResponseDto } from '@adapters/dtos/prediction/prediction-response.dto';
@@ -78,7 +82,9 @@ export class PredictionController {
   constructor(
     private readonly getOrCreatePredictionUseCase: GetOrCreatePredictionUseCase,
     private readonly saveGroupPredictionsUseCase: SaveGroupPredictionsUseCase,
+    private readonly saveKnockoutPredictionsUseCase: SaveKnockoutPredictionsUseCase,
     private readonly getBestThirdPlacesByPredictionUseCase: GetBestThirdPlacesByPredictionUseCase,
+    private readonly getResolvedRoundOf32MatchesUseCase: GetResolvedRoundOf32MatchesUseCase,
     private readonly updateAwardsUseCase: UpdateAwardsUseCase,
     private readonly updateChampionUseCase: UpdateChampionUseCase,
     private readonly getLeagueRankingUseCase: GetLeagueRankingUseCase,
@@ -179,6 +185,52 @@ export class PredictionController {
             },
           },
         },
+        roundOf32Matches: {
+          type: 'array',
+          description:
+            'Round of 32 matches (16 matches) with resolved teams and stadiums based on user predictions (only included when all 12 groups are completed)',
+          nullable: true,
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', format: 'uuid' },
+              matchNumber: { type: 'number', description: 'Match number (73-88)' },
+              homeTeam: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string', format: 'uuid' },
+                  name: { type: 'string', example: 'Spain' },
+                  fifaCode: { type: 'string', example: 'ESP' },
+                  confederation: { type: 'string', example: 'UEFA' },
+                },
+              },
+              awayTeam: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string', format: 'uuid' },
+                  name: { type: 'string', example: 'Turkey' },
+                  fifaCode: { type: 'string', example: 'TUR' },
+                  confederation: { type: 'string', example: 'UEFA' },
+                },
+              },
+              stadium: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string', format: 'uuid' },
+                  code: { type: 'string', example: 'USA_ATL_MERCEDES_BENZ' },
+                  name: { type: 'string', example: 'Mercedes-Benz Stadium' },
+                  city: { type: 'string', example: 'Atlanta' },
+                  country: { type: 'string', example: 'USA' },
+                  capacity: { type: 'number', example: 75000, nullable: true },
+                },
+              },
+              matchDate: { type: 'string', format: 'date' },
+              matchTime: { type: 'string' },
+              phase: { type: 'string', example: 'ROUND_OF_32' },
+              predictionsLockedAt: { type: 'string', format: 'date-time' },
+            },
+          },
+        },
       },
     },
   })
@@ -207,7 +259,7 @@ export class PredictionController {
     );
 
     // 2. Ejecutar queries en paralelo para mejor performance
-    const [rankingData, matchesWithPredictions, bestThirdPlaces] =
+    const [rankingData, matchesWithPredictions, bestThirdPlaces, roundOf32Matches] =
       await Promise.all([
         this.getLeagueRankingUseCase.execute(leagueId),
         this.getMatchesWithPredictionsUseCase.execute(prediction.id),
@@ -215,6 +267,11 @@ export class PredictionController {
         prediction.groupsCompleted
           ? this.getBestThirdPlacesByPredictionUseCase.execute(prediction.id)
           : Promise.resolve([]),
+        // Obtener partidos de R32 con equipos resueltos si se completaron los grupos
+        this.getResolvedRoundOf32MatchesUseCase.execute(
+          prediction.id,
+          prediction.groupsCompleted,
+        ),
       ]);
 
     // 3. Transformar a DTOs
@@ -250,6 +307,7 @@ export class PredictionController {
       ranking: rankingDto,
       matches: matchesDto,
       bestThirdPlaces: bestThirdPlaces.length > 0 ? bestThirdPlaces : undefined,
+      roundOf32Matches: roundOf32Matches.length > 0 ? roundOf32Matches : undefined,
     };
   }
 
@@ -413,6 +471,129 @@ export class PredictionController {
     });
 
     return result;
+  }
+
+  /**
+   * POST /predictions/:id/knockouts/:phase
+   *
+   * Guarda las predicciones de una fase de eliminatorias completa.
+   *
+   * Fases válidas:
+   * - ROUND_OF_32 (16 partidos)
+   * - ROUND_OF_16 (8 partidos)
+   * - QUARTER_FINALS (4 partidos)
+   * - SEMI_FINALS (2 partidos)
+   * - FINAL (1 partido)
+   *
+   * Validaciones:
+   * - Fase anterior debe estar completa
+   * - Equipos deben coincidir con ganadores de la fase anterior
+   * - Resultados deben ser consistentes:
+   *   * Empate en 90' → prórroga obligatoria
+   *   * Empate en prórroga → penaltis obligatorios
+   *   * Ganador en 90' → no prórroga ni penaltis
+   * - Número de predicciones debe coincidir con la fase
+   *
+   * Flujo:
+   * 1. Frontend obtiene equipos clasificados (de R32 resueltos o fase anterior)
+   * 2. Usuario predice resultados (90', prórroga, penaltis)
+   * 3. Backend valida que equipos coincidan con ganadores esperados
+   * 4. Guarda predicciones (UPSERT - permite editar antes del deadline)
+   * 5. Si completó todas las fases, marca knockoutsCompleted = true
+   *
+   * @param id - UUID de la predicción
+   * @param phase - Fase de eliminatorias (ROUND_OF_32, ROUND_OF_16, etc.)
+   * @param dto - Array de predicciones de partidos con resultados
+   * @returns Success message + completion status
+   */
+  @Post(':id/knockouts/:phase')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Save knockout phase predictions',
+    description:
+      'Saves predictions for a complete knockout phase (R32, R16, QF, SF, Final). Validates that previous phase is complete and teams match expected winners.',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'Prediction UUID',
+    type: 'string',
+    format: 'uuid',
+  })
+  @ApiParam({
+    name: 'phase',
+    description: 'Knockout phase',
+    enum: ['ROUND_OF_32', 'ROUND_OF_16', 'QUARTER_FINALS', 'SEMI_FINALS', 'FINAL'],
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Knockout predictions saved successfully',
+    schema: {
+      properties: {
+        success: { type: 'boolean', example: true },
+        message: {
+          type: 'string',
+          example: 'Knockout predictions saved successfully',
+        },
+        phase: {
+          type: 'string',
+          example: 'ROUND_OF_16',
+        },
+        matchesSaved: {
+          type: 'number',
+          example: 8,
+          description: 'Number of match predictions saved',
+        },
+        knockoutsCompleted: {
+          type: 'boolean',
+          example: false,
+          description: 'Whether all knockout phases have been completed',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 400,
+    description:
+      'Bad Request - Invalid phase, previous phase incomplete, teams mismatch, or invalid results',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - Invalid or missing JWT token',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Predictions locked (deadline passed)',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Prediction or match not found',
+  })
+  async saveKnockoutPredictions(
+    @Param('id') id: string,
+    @Param('phase') phase: string,
+    @Body() dto: SaveKnockoutPredictionsDto,
+  ) {
+    // Validar que la fase del DTO coincida con la del parámetro
+    if (dto.phase !== phase) {
+      throw new BadRequestException(
+        `Phase mismatch: URL parameter is "${phase}" but request body has "${dto.phase}"`,
+      );
+    }
+
+    // Ejecutar Use Case
+    const savedPredictions = await this.saveKnockoutPredictionsUseCase.execute(
+      id,
+      phase,
+      dto.predictions,
+    );
+
+    return {
+      success: true,
+      message: `${phase} predictions saved successfully`,
+      phase,
+      matchesSaved: savedPredictions.length,
+      knockoutsCompleted: false, // TODO: Check if all knockouts are complete
+    };
   }
 
   /**

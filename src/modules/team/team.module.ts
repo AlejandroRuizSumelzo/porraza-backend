@@ -72,6 +72,8 @@ import { TeamRepository } from '@infrastructure/persistence/repositories/team.re
      */
   ],
   exports: [
+    // Exportar repository para que otros módulos puedan usarlo
+    'ITeamRepository',
     // Si otros módulos necesitan usar los Use Cases, exportarlos aquí
     // GetAllTeamsUseCase,
     // GetTeamByIdUseCase,

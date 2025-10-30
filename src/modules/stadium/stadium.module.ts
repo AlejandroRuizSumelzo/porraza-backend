@@ -69,6 +69,8 @@ import { StadiumRepository } from '@infrastructure/persistence/repositories/stad
      */
   ],
   exports: [
+    // Exportar repository para que otros módulos puedan usarlo
+    'IStadiumRepository',
     // Si otros módulos necesitan usar GetAllStadiumsUseCase, exportarlo aquí
     // GetAllStadiumsUseCase,
   ],

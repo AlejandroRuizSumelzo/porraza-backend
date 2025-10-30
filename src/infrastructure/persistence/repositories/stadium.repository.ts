@@ -96,6 +96,44 @@ export class StadiumRepository implements IStadiumRepository {
   }
 
   /**
+   * Busca múltiples estadios por sus IDs
+   * Query batch optimizada con ANY($1)
+   */
+  async findByIds(ids: string[]): Promise<Stadium[]> {
+    if (ids.length === 0) {
+      return [];
+    }
+
+    const query = `
+      SELECT
+        id,
+        code,
+        name,
+        city,
+        country,
+        timezone,
+        capacity,
+        created_at,
+        updated_at
+      FROM stadiums
+      WHERE id = ANY($1)
+      ORDER BY name ASC
+    `;
+
+    try {
+      const result: QueryResult<StadiumDatabaseRow> = await this.pool.query(
+        query,
+        [ids],
+      );
+
+      return result.rows.map((row) => Stadium.fromDatabase(row));
+    } catch (error) {
+      console.error('Error fetching stadiums by ids:', error);
+      throw new Error('Failed to fetch stadiums by IDs from database');
+    }
+  }
+
+  /**
    * Busca un estadio por su código
    */
   async findByCode(code: string): Promise<Stadium | null> {

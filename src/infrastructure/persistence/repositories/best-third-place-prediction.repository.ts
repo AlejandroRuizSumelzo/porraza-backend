@@ -225,18 +225,11 @@ export class BestThirdPlacePredictionRepository
       const result = await this.pool.query(query, [pointsEarned, id]);
 
       if (result.rowCount === 0) {
-        throw new Error(
-          `Best third place prediction with id ${id} not found`,
-        );
+        throw new Error(`Best third place prediction with id ${id} not found`);
       }
     } catch (error) {
-      console.error(
-        `Error updating points for best third place ${id}:`,
-        error,
-      );
-      throw new Error(
-        'Failed to update best third place points in database',
-      );
+      console.error(`Error updating points for best third place ${id}:`, error);
+      throw new Error('Failed to update best third place points in database');
     }
   }
 

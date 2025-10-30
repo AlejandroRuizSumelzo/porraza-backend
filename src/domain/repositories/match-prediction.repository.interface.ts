@@ -77,6 +77,15 @@ export interface IMatchPredictionRepository {
   ): Promise<MatchPrediction | null>;
 
   /**
+   * Obtiene predicciones de partidos de una fase específica
+   * Útil para validar que una fase de eliminatorias esté completa
+   */
+  findByPredictionAndPhase(
+    predictionId: string,
+    phase: string,
+  ): Promise<MatchPrediction[]>;
+
+  /**
    * Actualiza puntos ganados en una predicción de partido
    * Se ejecuta cuando el partido real finaliza (CalculatePointsUseCase)
    *

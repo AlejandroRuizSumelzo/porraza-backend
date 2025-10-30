@@ -176,6 +176,57 @@ export class MatchRepository implements IMatchRepository {
   }
 
   /**
+   * Busca un partido por su número
+   * @param matchNumber - Número del partido (1-104)
+   * @returns Match o null si no existe
+   */
+  async findByMatchNumber(matchNumber: number): Promise<Match | null> {
+    const query = `
+      SELECT
+        id,
+        match_number,
+        home_team_id,
+        away_team_id,
+        home_team_placeholder,
+        away_team_placeholder,
+        stadium_id,
+        group_id,
+        phase,
+        match_date,
+        match_time,
+        home_score,
+        away_score,
+        home_score_et,
+        away_score_et,
+        home_penalties,
+        away_penalties,
+        status,
+        predictions_locked_at,
+        depends_on_match_ids,
+        created_at,
+        updated_at
+      FROM matches
+      WHERE match_number = $1
+    `;
+
+    try {
+      const result: QueryResult<MatchDatabaseRow> = await this.pool.query(
+        query,
+        [matchNumber],
+      );
+
+      if (result.rows.length === 0) {
+        return null;
+      }
+
+      return Match.fromDatabase(result.rows[0]);
+    } catch (error) {
+      console.error(`Error fetching match with number ${matchNumber}:`, error);
+      throw new Error('Failed to fetch match by number from database');
+    }
+  }
+
+  /**
    * Obtiene todos los partidos con información completa de equipos y estadio
    * Esta query hace JOIN con las tablas teams, stadiums y groups para obtener
    * toda la información necesaria para el calendario en una sola consulta
@@ -239,6 +290,54 @@ export class MatchRepository implements IMatchRepository {
     } catch (error) {
       console.error('Error fetching calendar with details:', error);
       throw new Error('Failed to fetch match calendar from database');
+    }
+  }
+
+  /**
+   * Obtiene todos los partidos de una fase específica del torneo
+   * @param phase - Fase del torneo (GROUP_STAGE, ROUND_OF_32, ROUND_OF_16, etc.)
+   * @returns Array de partidos de la fase solicitada ordenados por match_number
+   */
+  async findByPhase(phase: string): Promise<Match[]> {
+    const query = `
+      SELECT
+        id,
+        match_number,
+        home_team_id,
+        away_team_id,
+        home_team_placeholder,
+        away_team_placeholder,
+        stadium_id,
+        group_id,
+        phase,
+        match_date,
+        match_time,
+        home_score,
+        away_score,
+        home_score_et,
+        away_score_et,
+        home_penalties,
+        away_penalties,
+        status,
+        predictions_locked_at,
+        depends_on_match_ids,
+        created_at,
+        updated_at
+      FROM matches
+      WHERE phase = $1
+      ORDER BY match_number ASC
+    `;
+
+    try {
+      const result: QueryResult<MatchDatabaseRow> = await this.pool.query(
+        query,
+        [phase],
+      );
+
+      return result.rows.map((row) => Match.fromDatabase(row));
+    } catch (error) {
+      console.error(`Error fetching matches for phase ${phase}:`, error);
+      throw new Error(`Failed to fetch matches for phase ${phase} from database`);
     }
   }
 
